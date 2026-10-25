@@ -4,8 +4,9 @@ const Folder = require("../models/Folder");
 
 // How long the answer stays on screen before the next question.
 const REVEAL_MS = 2500;
-// Seconds per question the host can pick in timed mode.
-const TIME_CHOICES = [10, 20, 30, 60];
+// Range of seconds per question the host can pick in timed mode (whole seconds).
+const MIN_SECONDS = 5;
+const MAX_SECONDS = 60;
 
 function createCode() {
   const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // skip confusing chars if desired
@@ -192,7 +193,8 @@ module.exports = function attachVersus(io) {
       const room = rooms.get(code);
       if (!room || room.hostId !== socket.id || room.started) return;
       if (mode === "first" || mode === "timed") room.settings = { ...room.settings, mode };
-      if (TIME_CHOICES.includes(Number(seconds))) room.settings = { ...room.settings, seconds: Number(seconds) };
+      const s = Number(seconds);
+      if (Number.isInteger(s) && s >= MIN_SECONDS && s <= MAX_SECONDS) room.settings = { ...room.settings, seconds: s };
       broadcastState(io, room);
     });
 

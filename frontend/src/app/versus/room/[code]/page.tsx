@@ -5,8 +5,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { getSocket, getUsername, RoomPlayer, RoomState, useRequireAuth, VersusSettings } from "@/lib/api";
 import { Button, Chip, Notice, Panel, inputClass } from "@/components/ui";
 
-// Same choices the server accepts (TIME_CHOICES in backend/sockets/versus.js).
-const TIME_CHOICES = [10, 20, 30, 60];
+// Same range the server accepts (MIN_SECONDS/MAX_SECONDS in backend/sockets/versus.js).
+const MIN_SECONDS = 5;
+const MAX_SECONDS = 60;
+// Quick picks next to the seconds box.
+const TIME_PRESETS = [10, 20, 30, 60];
+// Matches the settings a new room starts with on the server.
+const DEFAULT_SETTINGS: VersusSettings = { mode: "first", seconds: 20 };
 
 export default function VersusRoomPage() {
   const signedIn = useRequireAuth();
@@ -38,7 +43,16 @@ export default function VersusRoomPage() {
     const handlers: Record<string, (...args: any[]) => void> = {
       connect: () => setSocketId(socket.id || ""),
       disconnect: () => setSocketId(""),
-      roomState: (rs: RoomState) => {
+      roomState: (raw: RoomState) => {
+        // A server that predates game modes sends no settings/solvedBy/answer; fill them in
+        // so the page still renders instead of crashing on room.settings.mode.
+        const rs: RoomState = {
+          ...raw,
+          settings: raw.settings ?? DEFAULT_SETTINGS,
+          solvedBy: raw.solvedBy ?? [],
+          remainingMs: raw.remainingMs ?? null,
+          answer: raw.answer ?? null,
+        };
         const key = rs.started ? `${rs.currentIndex}:${rs.currentQuestion?.id}` : "";
         if (key !== questionKey.current) {
           questionKey.current = key;
@@ -254,13 +268,12 @@ function GameSettings({
       {settings.mode === "timed" && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="mr-1 text-sm text-muted">Time per question</span>
-          {TIME_CHOICES.map((s) => (
+          <SecondsInput seconds={settings.seconds} disabled={!canEdit} onChange={(s) => onChange({ seconds: s })} />
+          {canEdit && TIME_PRESETS.map((s) => (
             <Chip
               key={s}
               active={settings.seconds === s}
-              disabled={!canEdit}
               onClick={() => onChange({ seconds: s })}
-              className={!canEdit && settings.seconds !== s ? "opacity-50" : ""}
             >
               {s}s
             </Chip>
@@ -268,6 +281,41 @@ function GameSettings({
         </div>
       )}
     </Panel>
+  );
+}
+
+/** Seconds box for timed mode. Sends on Enter or when it loses focus, kept within MIN_SECONDS–MAX_SECONDS. */
+function SecondsInput({ seconds, disabled, onChange }: { seconds: number; disabled: boolean; onChange: (s: number) => void }) {
+  const [draft, setDraft] = useState(String(seconds));
+  // Follow the room's value when it changes (a preset was picked, or the host is someone else).
+  useEffect(() => setDraft(String(seconds)), [seconds]);
+
+  const commit = () => {
+    const n = Math.round(Number(draft));
+    if (!draft.trim() || !Number.isFinite(n)) { setDraft(String(seconds)); return; }
+    const s = Math.min(MAX_SECONDS, Math.max(MIN_SECONDS, n));
+    setDraft(String(s));
+    if (s !== seconds) onChange(s);
+  };
+
+  return (
+    <label className="flex items-center gap-1.5 text-sm text-muted">
+      <input
+        type="number"
+        inputMode="numeric"
+        min={MIN_SECONDS}
+        max={MAX_SECONDS}
+        step={1}
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        aria-label={`Seconds per question, ${MIN_SECONDS} to ${MAX_SECONDS}`}
+        className="h-9 w-20 rounded-lg border border-line bg-desk/60 px-2 text-center text-base text-ink tabular-nums outline-none transition focus:border-info focus:bg-card"
+      />
+      <span>sec{!disabled && ` (${MIN_SECONDS}–${MAX_SECONDS})`}</span>
+    </label>
   );
 }
 

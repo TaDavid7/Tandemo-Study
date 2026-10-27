@@ -60,7 +60,8 @@ function nextSchedule(card, grade, now = new Date()) {
   return { ease, interval, reps, lapses, due: addDays(now, interval), lastReviewedAt: now, ...firstReview };
 }
 
-const MAX_REVIEW = 60;
+// Same as Anki's defaults (200 reviews, 20 new cards a day).
+const MAX_REVIEW = 200;
 const MAX_NEW = 20;
 
 module.exports = { nextSchedule, todayBounds, parseTzOffset, MAX_REVIEW, MAX_NEW };

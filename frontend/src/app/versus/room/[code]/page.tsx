@@ -151,7 +151,7 @@ export default function VersusRoomPage() {
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -12 }}
-                    className="flex flex-1 items-center justify-center px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:text-2xl"
+                    className="flex flex-1 items-center justify-center whitespace-pre-wrap break-words px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:text-2xl"
                   >
                     {question.question}
                   </motion.p>
@@ -164,7 +164,7 @@ export default function VersusRoomPage() {
                       exit={{ opacity: 0 }}
                       className="absolute inset-x-6 bottom-5 rounded-lg bg-hl px-4 py-2 text-center text-hl-ink"
                     >
-                      Answer: <span className="font-semibold">{answer || "—"}</span>
+                      Answer: <span className="whitespace-pre-wrap font-semibold">{answer || "—"}</span>
                     </motion.div>
                   )}
                 </AnimatePresence>

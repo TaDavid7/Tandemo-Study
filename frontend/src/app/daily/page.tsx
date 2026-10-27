@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { api, Card, Folder, useFolders, useRequireAuth } from "@/lib/api";
@@ -67,13 +67,21 @@ const GRADES = [
   { value: 3, label: "Easy", hint: "Instantly", color: "text-info border-info/40 hover:bg-info/10" },
 ] as const;
 
+// Like Anki's relearning step: a card graded Again comes back after this many
+// other cards (or right away if nothing else is left).
+const RETRY_GAP = 3;
+
 function Session({ onExit }: { onExit: () => void }) {
   const [review, setReview] = useState<Card[]>([]);
   const [news, setNews] = useState<Card[]>([]);
+  const [retry, setRetry] = useState<{ card: Card; wait: number }[]>([]);
   const [current, setCurrent] = useState<Card | null>(null);
   const [flipped, setFlipped] = useState(false);
   const [total, setTotal] = useState(0);
   const [done, setDone] = useState(0);
+  const [turn, setTurn] = useState(0);
+  // Cards already sent to the server this session; their repeats are practice only.
+  const graded = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -94,22 +102,30 @@ function Session({ onExit }: { onExit: () => void }) {
     async (value: number) => {
       if (!current || !flipped) return;
       const wasNew = current.reps === 0;
+      const repeat = graded.current.has(current._id);
       const r = review.filter((c) => c._id !== current._id);
       const n = news.filter((c) => c._id !== current._id);
+      const q = retry.filter((x) => x.card._id !== current._id).map((x) => ({ ...x, wait: x.wait - 1 }));
+      if (value === 0) q.push({ card: current, wait: RETRY_GAP });
       // Mostly reviews first, mixing in new cards along the way.
-      const next = r.length && (!wasNew || Math.random() < 0.75) ? r[0] : n[0] ?? r[0] ?? null;
+      const fresh = r.length && (!wasNew || Math.random() < 0.75) ? r[0] : n[0] ?? r[0] ?? null;
+      const due = q.find((x) => x.wait <= 0) ?? (fresh ? undefined : q[0]);
       setReview(r);
       setNews(n);
-      setCurrent(next);
+      setRetry(q);
+      setCurrent(due ? due.card : fresh);
       setFlipped(false);
-      setDone((d) => d + 1);
+      setTurn((t) => t + 1);
+      if (value !== 0) setDone((d) => d + 1);
+      if (repeat) return;
+      graded.current.add(current._id);
       try {
         await api("/api/review", "POST", { cardId: current._id, grade: value });
       } catch (e) {
         setError((e as Error).message);
       }
     },
-    [current, flipped, review, news]
+    [current, flipped, review, news, retry]
   );
 
   useEffect(() => {
@@ -147,7 +163,9 @@ function Session({ onExit }: { onExit: () => void }) {
     <div className="mx-auto max-w-[42.5rem]">
       <div className="mb-6 flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onExit}>← End session</Button>
-        <span className="text-sm tabular-nums text-muted">{done} of {total} reviewed</span>
+        <span className="text-sm tabular-nums text-muted">
+          {done} of {total} reviewed{retry.length > 0 && ` · ${retry.length} to retry`}
+        </span>
       </div>
 
       <div className="mb-8 h-1.5 overflow-hidden rounded-full bg-line">
@@ -159,7 +177,7 @@ function Session({ onExit }: { onExit: () => void }) {
       <div className="relative h-[22.5rem] mobile:h-[18rem]">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
-            key={current._id}
+            key={`${current._id}-${turn}`}
             className="absolute inset-0"
             initial={{ opacity: 0, y: 24, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}

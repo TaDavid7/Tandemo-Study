@@ -118,7 +118,9 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
     e.preventDefault();
     if (over || reveal !== null || !guess.trim()) return;
     const card = deck[i];
-    if (guess.trim().toLowerCase() === card.answer.trim().toLowerCase()) {
+    // Collapse whitespace so a multi-line answer can be typed on one line.
+    const flat = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+    if (flat(guess) === flat(card.answer)) {
       setRight((n) => n + 1);
       controls.start({ scale: [1, 1.03, 1], transition: { duration: 0.25 } });
       advance();
@@ -162,8 +164,8 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
             <Panel className="divide-y divide-line">
               {missed.map((c) => (
                 <div key={c._id} className="grid grid-cols-2 gap-4 px-4 py-3">
-                  <span>{c.question}</span>
-                  <span className="text-muted">{c.answer}</span>
+                  <span className="whitespace-pre-wrap break-words">{c.question}</span>
+                  <span className="whitespace-pre-wrap break-words text-muted">{c.answer}</span>
                 </div>
               ))}
             </Panel>
@@ -222,7 +224,7 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.15 }}
-              className="font-card text-3xl leading-snug"
+              className="whitespace-pre-wrap break-words font-card text-3xl leading-snug"
             >
               {deck[i]?.question}
             </motion.p>
@@ -235,7 +237,7 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
                 exit={{ opacity: 0 }}
                 className="absolute inset-x-0 bottom-5 text-center text-bad"
               >
-                Answer: <span className="font-semibold">{reveal}</span>
+                Answer: <span className="whitespace-pre-wrap font-semibold">{reveal}</span>
               </motion.p>
             )}
           </AnimatePresence>

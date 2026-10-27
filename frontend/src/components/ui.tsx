@@ -195,6 +195,11 @@ export function FlipCard({
 }) {
   const face =
     "flip-face index-card absolute inset-0 flex flex-col rounded-xl border border-line shadow-[0_1px_0_var(--line),0_12px_30px_-12px_rgb(0_0_0/0.25)]";
+  // m-auto rather than justify-center: a tall multi-line card scrolls from its
+  // first line instead of being clipped at the top.
+  const body =
+    "flex min-h-0 flex-1 overflow-y-auto px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:pb-8 mobile:text-2xl";
+  const text = "m-auto whitespace-pre-wrap break-words";
   return (
     <div className={cx("flip-card", className)} data-flipped={flipped ? "" : undefined}>
       <button
@@ -205,14 +210,14 @@ export function FlipCard({
       >
         <div className={cx(face, "flip-face-front")}>
           <span className="px-7 pt-5 text-sm text-muted">Question</span>
-          <div className="flex flex-1 items-center justify-center px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:pb-8 mobile:text-2xl">
-            {front}
+          <div className={body}>
+            <div className={text}>{front}</div>
           </div>
         </div>
         <div className={cx(face, "flip-face-back")}>
           <span className="px-7 pt-5 text-sm text-muted">Answer</span>
-          <div className="flex flex-1 items-center justify-center px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:pb-8 mobile:text-2xl">
-            {back}
+          <div className={body}>
+            <div className={text}>{back}</div>
           </div>
         </div>
       </button>

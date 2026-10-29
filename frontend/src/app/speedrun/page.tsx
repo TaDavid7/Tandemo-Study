@@ -3,7 +3,7 @@ import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
 import Link from "next/link";
 import { Card, useCards, useFolders, useRequireAuth } from "@/lib/api";
-import { Button, Chip, PageHeader, Panel, inputClass } from "@/components/ui";
+import { Button, Chip, FitText, PageHeader, Panel, inputClass } from "@/components/ui";
 
 const PRESETS = [30, 60, 120, 300];
 const MIN_CARDS = 5;
@@ -118,7 +118,9 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
     e.preventDefault();
     if (over || reveal !== null || !guess.trim()) return;
     const card = deck[i];
-    if (guess.trim().toLowerCase() === card.answer.trim().toLowerCase()) {
+    // Collapse whitespace so a multi-line answer can be typed on one line.
+    const flat = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+    if (flat(guess) === flat(card.answer)) {
       setRight((n) => n + 1);
       controls.start({ scale: [1, 1.03, 1], transition: { duration: 0.25 } });
       advance();
@@ -162,8 +164,8 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
             <Panel className="divide-y divide-line">
               {missed.map((c) => (
                 <div key={c._id} className="grid grid-cols-2 gap-4 px-4 py-3">
-                  <span>{c.question}</span>
-                  <span className="text-muted">{c.answer}</span>
+                  <span className="whitespace-pre-wrap break-words">{c.question}</span>
+                  <span className="whitespace-pre-wrap break-words text-muted">{c.answer}</span>
                 </div>
               ))}
             </Panel>
@@ -211,21 +213,21 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
 
       <motion.div animate={controls}>
         <div
-          className={`index-card relative flex h-[16.25rem] items-center justify-center rounded-xl border px-10 text-center mobile:h-[12rem] mobile:px-6 mobile:pt-12 shadow-[0_12px_30px_-12px_rgb(0_0_0/0.25)] transition-colors ${
+          className={`index-card relative flex h-[16.25rem] flex-col rounded-xl border px-10 py-5 text-center mobile:h-[12rem] mobile:px-6 mobile:pt-12 shadow-[0_12px_30px_-12px_rgb(0_0_0/0.25)] transition-colors ${
             reveal !== null ? "border-bad" : "border-line"
           }`}
         >
           <AnimatePresence mode="wait">
-            <motion.p
+            <motion.div
               key={`${deck[i]?._id}-${i}`}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.15 }}
-              className="font-card text-3xl leading-snug"
+              className="flex min-h-0 flex-1 flex-col"
             >
-              {deck[i]?.question}
-            </motion.p>
+              <FitText className="font-card text-3xl leading-snug">{deck[i]?.question}</FitText>
+            </motion.div>
           </AnimatePresence>
           <AnimatePresence>
             {reveal !== null && (
@@ -235,7 +237,7 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
                 exit={{ opacity: 0 }}
                 className="absolute inset-x-0 bottom-5 text-center text-bad"
               >
-                Answer: <span className="font-semibold">{reveal}</span>
+                Answer: <span className="whitespace-pre-wrap font-semibold">{reveal}</span>
               </motion.p>
             )}
           </AnimatePresence>

@@ -3,7 +3,7 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { getSocket, getUsername, RoomPlayer, RoomState, useRequireAuth, VersusSettings } from "@/lib/api";
-import { Button, Chip, Notice, Panel, inputClass } from "@/components/ui";
+import { Button, Chip, FitText, Notice, Panel, inputClass } from "@/components/ui";
 
 // Same range the server accepts (MIN_SECONDS/MAX_SECONDS in backend/sockets/versus.js).
 const MIN_SECONDS = 5;
@@ -146,15 +146,17 @@ export default function VersusRoomPage() {
                   {timed && deadline !== null && <Countdown deadline={deadline} />}
                 </div>
                 <AnimatePresence mode="wait">
-                  <motion.p
+                  <motion.div
                     key={question.id}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -12 }}
-                    className="flex flex-1 items-center justify-center whitespace-pre-wrap break-words px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:text-2xl"
+                    className="flex min-h-0 flex-1 flex-col"
                   >
-                    {question.question}
-                  </motion.p>
+                    <FitText className="px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:text-2xl">
+                      {question.question}
+                    </FitText>
+                  </motion.div>
                 </AnimatePresence>
                 <AnimatePresence>
                   {answer !== null && (

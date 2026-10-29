@@ -3,7 +3,7 @@ import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
 import Link from "next/link";
 import { Card, useCards, useFolders, useRequireAuth } from "@/lib/api";
-import { Button, Chip, PageHeader, Panel, inputClass } from "@/components/ui";
+import { Button, Chip, FitText, PageHeader, Panel, inputClass } from "@/components/ui";
 
 const PRESETS = [30, 60, 120, 300];
 const MIN_CARDS = 5;
@@ -213,21 +213,21 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
 
       <motion.div animate={controls}>
         <div
-          className={`index-card relative flex h-[16.25rem] items-center justify-center rounded-xl border px-10 text-center mobile:h-[12rem] mobile:px-6 mobile:pt-12 shadow-[0_12px_30px_-12px_rgb(0_0_0/0.25)] transition-colors ${
+          className={`index-card relative flex h-[16.25rem] flex-col rounded-xl border px-10 py-5 text-center mobile:h-[12rem] mobile:px-6 mobile:pt-12 shadow-[0_12px_30px_-12px_rgb(0_0_0/0.25)] transition-colors ${
             reveal !== null ? "border-bad" : "border-line"
           }`}
         >
           <AnimatePresence mode="wait">
-            <motion.p
+            <motion.div
               key={`${deck[i]?._id}-${i}`}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.15 }}
-              className="whitespace-pre-wrap break-words font-card text-3xl leading-snug"
+              className="flex min-h-0 flex-1 flex-col"
             >
-              {deck[i]?.question}
-            </motion.p>
+              <FitText className="font-card text-3xl leading-snug">{deck[i]?.question}</FitText>
+            </motion.div>
           </AnimatePresence>
           <AnimatePresence>
             {reveal !== null && (

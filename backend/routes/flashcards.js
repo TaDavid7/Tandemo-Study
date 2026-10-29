@@ -19,6 +19,11 @@ function getTodayDateOnly() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
+// Same limit as the card dialog (frontend/src/app/home/page.tsx).
+const MAX_WORDS = 100;
+const tooLong = (...texts) =>
+  texts.some((s) => typeof s === "string" && s.split(/\s+/).filter(Boolean).length > MAX_WORDS);
+
 router.get("/", auth, async (req, res) => {
   try {
     const q = { user: req.user._id };
@@ -36,6 +41,9 @@ router.post("/", auth, async (req, res) => {
     if (!question || !answer || !folder) {
       return res.status(400).json({ error: "question, answer, folder required" });
     }
+    if (tooLong(question, answer)) {
+      return res.status(400).json({ error: `Keep the question and answer to ${MAX_WORDS} words each.` });
+    }
     const card = await Flashcard.create({ question, answer, folder, user: req.user._id });
     res.status(201).json(card);
   } catch (e) {
@@ -46,6 +54,9 @@ router.post("/", auth, async (req, res) => {
 router.patch("/:id", auth, async (req, res) => {
   try {
     const { question, answer, folder } = req.body || {};
+    if (tooLong(question, answer)) {
+      return res.status(400).json({ error: `Keep the question and answer to ${MAX_WORDS} words each.` });
+    }
     const card = await Flashcard.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
       {

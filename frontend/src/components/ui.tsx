@@ -1,6 +1,6 @@
 // Shared building blocks used by every page.
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -195,11 +195,7 @@ export function FlipCard({
 }) {
   const face =
     "flip-face index-card absolute inset-0 flex flex-col rounded-xl border border-line shadow-[0_1px_0_var(--line),0_12px_30px_-12px_rgb(0_0_0/0.25)]";
-  // m-auto rather than justify-center: a tall multi-line card scrolls from its
-  // first line instead of being clipped at the top.
-  const body =
-    "flex min-h-0 flex-1 overflow-y-auto px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:pb-8 mobile:text-2xl";
-  const text = "m-auto whitespace-pre-wrap break-words";
+  const body = "px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:pb-8 mobile:text-2xl";
   return (
     <div className={cx("flip-card", className)} data-flipped={flipped ? "" : undefined}>
       <button
@@ -210,17 +206,53 @@ export function FlipCard({
       >
         <div className={cx(face, "flip-face-front")}>
           <span className="px-7 pt-5 text-sm text-muted">Question</span>
-          <div className={body}>
-            <div className={text}>{front}</div>
-          </div>
+          <FitText className={body}>{front}</FitText>
         </div>
         <div className={cx(face, "flip-face-back")}>
           <span className="px-7 pt-5 text-sm text-muted">Answer</span>
-          <div className={body}>
-            <div className={text}>{back}</div>
-          </div>
+          <FitText className={body}>{back}</FitText>
         </div>
       </button>
+    </div>
+  );
+}
+
+/* ── Fit text ─────────────────────────────────────────── */
+// Card text that keeps its line breaks and shrinks until it fits its box, down to
+// FIT_MIN of the box's font size. Anything still too tall scrolls from the first
+// line (m-auto rather than justify-center, so the top is never clipped).
+
+const FIT_MIN = 0.5;
+const FIT_STEP = 0.05;
+
+export function FitText({ className, children }: { className?: string; children: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const text = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const b = box.current;
+    const t = text.current;
+    if (!b || !t) return;
+    const fit = () => {
+      let scale = 1;
+      t.style.fontSize = "";
+      while (scale > FIT_MIN && b.scrollHeight > b.clientHeight) {
+        scale -= FIT_STEP;
+        t.style.fontSize = `${scale}em`;
+      }
+    };
+    fit();
+    // Refit when the card changes size, and once the card font has loaded.
+    const ro = new ResizeObserver(fit);
+    ro.observe(b);
+    let live = true;
+    document.fonts?.ready.then(() => live && fit());
+    return () => { live = false; ro.disconnect(); };
+  }, [children]);
+
+  return (
+    <div ref={box} className={cx("flex min-h-0 flex-1 overflow-y-auto", className)}>
+      <div ref={text} className="m-auto whitespace-pre-wrap break-words">{children}</div>
     </div>
   );
 }

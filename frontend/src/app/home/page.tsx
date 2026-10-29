@@ -413,6 +413,19 @@ function useResetOnOpen(open: boolean, reset: () => void) {
   }
 }
 
+// Same limit as the server (backend/routes/flashcards.js). Longer text shrinks to fit the card.
+const MAX_WORDS = 100;
+const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
+
+function WordCount({ text }: { text: string }) {
+  const n = countWords(text);
+  return (
+    <span className={`block text-right text-xs tabular-nums ${n > MAX_WORDS ? "text-bad" : "text-muted"}`}>
+      {n} / {MAX_WORDS} words
+    </span>
+  );
+}
+
 function CardDialog({
   open, card, folderId, onClose, onSaved,
 }: {
@@ -444,25 +457,28 @@ function CardDialog({
   };
 
   const area = `${inputClass} h-auto resize-none py-2.5`;
+  const tooLong = countWords(q) > MAX_WORDS || countWords(a) > MAX_WORDS;
 
   return (
     <Modal open={open} onClose={onClose} title={card ? "Edit card" : "Add card"}>
       <form onSubmit={save} className="space-y-4">
         <Field label="Question">
           <textarea ref={questionRef} autoFocus rows={3} value={q} onChange={(e) => setQ(e.target.value)} required className={area} />
+          <WordCount text={q} />
         </Field>
         <Field label="Answer">
           <textarea rows={3} value={a} onChange={(e) => setA(e.target.value)} required className={area} />
+          <WordCount text={a} />
         </Field>
         {error && <Notice>{error}</Notice>}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
           {!card && (
-            <Button type="button" variant="secondary" disabled={saving || !q || !a} onClick={(e) => save(e, true)}>
+            <Button type="button" variant="secondary" disabled={saving || !q || !a || tooLong} onClick={(e) => save(e, true)}>
               Save and add another
             </Button>
           )}
-          <Button disabled={saving}>{card ? "Save changes" : "Save card"}</Button>
+          <Button disabled={saving || tooLong}>{card ? "Save changes" : "Save card"}</Button>
         </div>
       </form>
     </Modal>

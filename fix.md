@@ -1,6 +1,7 @@
 ##### 10/22
 - daily order needs to be randomized
 - should be char limit and not word limit for flashcard
+- glitch where folder with not many cards can't start daily
 - change icon to hiragana ta, and the browser tab to remove yellow color
 - keep information lined with notecard in daily
 - add paywall/block for pdf import

@@ -377,7 +377,7 @@ function Memory() {
           then a couple of weeks. Miss it, and it comes back tomorrow.
         </motion.p>
         <motion.p className="mt-4 max-w-md text-lg text-muted" {...reveal(0.18)}>
-          Daily practice only shows what&apos;s due, with at most 60 reviews and 20 new cards a day.
+          Daily practice only shows what&apos;s due, with at most 200 reviews a day and 20 new cards per folder.
         </motion.p>
       </div>
 
@@ -688,7 +688,7 @@ function AppWindow({ tab, children }: { tab: string; children: React.ReactNode }
       >
         <div className="flex h-11 items-center justify-between border-b border-line px-4">
           <span className="flex items-center gap-2">
-            <span className="grid h-5 w-5 -rotate-6 place-items-center rounded bg-hl text-[10px] font-bold text-hl-ink">T</span>
+            <span lang="ja" className="grid h-5 w-5 -rotate-6 place-items-center rounded bg-hl text-[10px] font-bold text-hl-ink">た</span>
             <span className="text-sm font-semibold tracking-tight">Tandemo</span>
           </span>
           <span className="flex text-xs font-medium">

@@ -107,6 +107,10 @@ body {
   background-position: 0 56px, 0 58px;
   background-repeat: no-repeat;
 }
+/* Text too long to sit on the rules (FitText in ui.tsx): keep only the red header line. */
+.index-card[data-unruled] {
+  background-image: linear-gradient(var(--rule-red), var(--rule-red));
+}
 
 /* FlipCard. Both faces carry their own 3D transform and the turning element
    stays on its own layer, so neither face flashes at the start or end of a turn. */

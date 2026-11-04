@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { api, Card, Folder, useFolders, useRequireAuth } from "@/lib/api";
+import { api, Card, Folder, shuffle, useFolders, useRequireAuth } from "@/lib/api";
 import { Button, Chip, FlipCard, Kbd, Notice, PageHeader, Panel } from "@/components/ui";
 
 export default function DailyPage() {
@@ -72,52 +72,66 @@ const GRADES = [
 const RETRY_GAP = 3;
 
 function Session({ onExit }: { onExit: () => void }) {
-  const [review, setReview] = useState<Card[]>([]);
-  const [news, setNews] = useState<Card[]>([]);
+  const [queue, setQueue] = useState<Card[]>([]);
   const [retry, setRetry] = useState<{ card: Card; wait: number }[]>([]);
   const [current, setCurrent] = useState<Card | null>(null);
   const [flipped, setFlipped] = useState(false);
   const [total, setTotal] = useState(0);
   const [done, setDone] = useState(0);
   const [turn, setTurn] = useState(0);
+  const [cardCount, setCardCount] = useState(0);
+  // Going through cards that aren't due. Nothing is sent to the server, so the schedule stays put.
+  const [practice, setPractice] = useState(false);
   // Cards already sent to the server this session; their repeats are practice only.
   const graded = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const deal = useCallback((cards: Card[]) => {
+    setQueue(cards);
+    setCurrent(cards[0] ?? null);
+    setTotal(cards.length);
+    setDone(0);
+  }, []);
+
   useEffect(() => {
     // tz lets the server count "today" in the user's timezone, not its own
-    api<{ review?: Card[]; news?: Card[] }>(`/api/daily?tz=${new Date().getTimezoneOffset()}`)
-      .then(({ review = [], news = [] }) => {
-        setReview(review);
-        setNews(news);
-        setCurrent(review[0] || news[0] || null);
-        setTotal(review.length + news.length);
+    api<{ review?: Card[]; news?: Card[]; cardCount?: number }>(`/api/daily?tz=${new Date().getTimezoneOffset()}`)
+      .then(({ review = [], news = [], cardCount = 0 }) => {
+        deal(shuffle([...review, ...news]));
+        setCardCount(cardCount);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [deal]);
+
+  const startPractice = async () => {
+    setError(null);
+    try {
+      const { cards } = await api<{ cards: Card[] }>("/api/daily/practice");
+      setPractice(true);
+      deal(cards);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const grade = useCallback(
     async (value: number) => {
       if (!current || !flipped) return;
-      const wasNew = current.reps === 0;
       const repeat = graded.current.has(current._id);
-      const r = review.filter((c) => c._id !== current._id);
-      const n = news.filter((c) => c._id !== current._id);
+      const rest = queue.filter((c) => c._id !== current._id);
       const q = retry.filter((x) => x.card._id !== current._id).map((x) => ({ ...x, wait: x.wait - 1 }));
       if (value === 0) q.push({ card: current, wait: RETRY_GAP });
-      // Mostly reviews first, mixing in new cards along the way.
-      const fresh = r.length && (!wasNew || Math.random() < 0.75) ? r[0] : n[0] ?? r[0] ?? null;
+      const fresh = rest[0] ?? null;
       const due = q.find((x) => x.wait <= 0) ?? (fresh ? undefined : q[0]);
-      setReview(r);
-      setNews(n);
+      setQueue(rest);
       setRetry(q);
       setCurrent(due ? due.card : fresh);
       setFlipped(false);
       setTurn((t) => t + 1);
       if (value !== 0) setDone((d) => d + 1);
-      if (repeat) return;
+      if (repeat || practice) return;
       graded.current.add(current._id);
       try {
         await api("/api/review", "POST", { cardId: current._id, grade: value });
@@ -125,7 +139,7 @@ function Session({ onExit }: { onExit: () => void }) {
         setError((e as Error).message);
       }
     },
-    [current, flipped, review, news, retry]
+    [current, flipped, queue, retry, practice]
   );
 
   useEffect(() => {
@@ -141,6 +155,12 @@ function Session({ onExit }: { onExit: () => void }) {
   if (loading) return <p className="py-24 text-center text-muted">Getting today&apos;s cards…</p>;
 
   if (!current) {
+    const cardWord = `card${done === 1 ? "" : "s"}`;
+    const summary = practice
+      ? `You practiced ${done} ${cardWord}. `
+      : done
+        ? `You reviewed ${done} ${cardWord}. `
+        : "Nothing is due right now. ";
     return (
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
@@ -148,13 +168,20 @@ function Session({ onExit }: { onExit: () => void }) {
         className="mx-auto max-w-lg py-16 text-center"
       >
         <h1 className="font-card text-5xl">
-          <span className="bg-[linear-gradient(transparent_80%,var(--hl)_80%)] px-1">All caught up</span>
+          <span className="bg-[linear-gradient(transparent_80%,var(--hl)_80%)] px-1">
+            {cardCount ? "All caught up" : "No cards yet"}
+          </span>
         </h1>
         <p className="mt-4 text-muted">
-          {done ? `You reviewed ${done} card${done === 1 ? "" : "s"}. ` : "Nothing is due right now. "}
-          Come back tomorrow for the next batch.
+          {cardCount
+            ? `${summary}Cards come back here when they're due, or you can practice them now. Practice doesn't change their schedule.`
+            : "The folders in your session don't have any cards. Add some in Decks to get started."}
         </p>
-        <Button variant="secondary" className="mt-8" onClick={onExit}>Back to folders</Button>
+        {error && <div className="mt-4"><Notice>{error}</Notice></div>}
+        <div className="mt-8 flex justify-center gap-2">
+          <Button variant="secondary" onClick={onExit}>Back to folders</Button>
+          {cardCount > 0 && <Button onClick={startPractice}>{practice ? "Practice again" : "Practice anyway"}</Button>}
+        </div>
       </motion.div>
     );
   }
@@ -164,7 +191,7 @@ function Session({ onExit }: { onExit: () => void }) {
       <div className="mb-6 flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onExit}>← End session</Button>
         <span className="text-sm tabular-nums text-muted">
-          {done} of {total} reviewed{retry.length > 0 && ` · ${retry.length} to retry`}
+          {done} of {total} {practice ? "practiced" : "reviewed"}{retry.length > 0 && ` · ${retry.length} to retry`}
         </span>
       </div>
 
@@ -184,7 +211,7 @@ function Session({ onExit }: { onExit: () => void }) {
             exit={{ opacity: 0, y: -40, rotate: -4 }}
             transition={{ type: "spring", stiffness: 360, damping: 30 }}
           >
-            <FlipCard className="h-full" front={current.question} back={current.answer} flipped={flipped} onFlip={() => setFlipped((f) => !f)} />
+            <FlipCard ruled className="h-full" front={current.question} back={current.answer} flipped={flipped} onFlip={() => setFlipped((f) => !f)} />
           </motion.div>
         </AnimatePresence>
       </div>

@@ -1,10 +1,10 @@
 ##### 10/22
-- daily order needs to be randomized
-- should be char limit and not word limit for flashcard
-- glitch where folder with not many cards can't start daily
-- change icon to hiragana ta, and the browser tab to remove yellow color
-- keep information lined with notecard in daily
-- add paywall/block for pdf import
+- ~~daily order needs to be randomized~~ (11/4)
+- ~~should be char limit and not word limit for flashcard~~ (11/4)
+- ~~glitch where folder with not many cards can't start daily~~ (11/4)
+- ~~change icon to hiragana ta, and the browser tab to remove yellow color~~ (11/4)
+- ~~keep information lined with notecard in daily~~ (11/4)
+- ~~add paywall/block for pdf import~~ (11/4)
 - drawing feature
 - add png and audio files
 - google signin

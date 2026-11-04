@@ -5,7 +5,7 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#e8ecf1",
-  "theme_color": "#ffd84d",
+  "theme_color": "#172036",
   "icons": [
     {
       "src": "/icons/tandemo-192.png",

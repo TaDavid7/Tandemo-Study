@@ -2,7 +2,7 @@
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
 import Link from "next/link";
-import { Card, useCards, useFolders, useRequireAuth } from "@/lib/api";
+import { Card, shuffle, useCards, useFolders, useRequireAuth } from "@/lib/api";
 import { Button, Chip, FitText, PageHeader, Panel, inputClass } from "@/components/ui";
 
 const PRESETS = [30, 60, 120, 300];
@@ -75,15 +75,6 @@ export default function SpeedrunPage() {
       </Button>
     </div>
   );
-}
-
-function shuffle<T>(arr: T[]) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
 }
 
 function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onExit: () => void }) {

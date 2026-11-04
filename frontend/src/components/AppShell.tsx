@@ -137,8 +137,8 @@ function Header({ mobile, ready, onToggleLayout }: { mobile: boolean; ready: boo
     <header className="sticky top-0 z-40 border-b border-line bg-desk/85 backdrop-blur">
       <div className="mx-auto grid h-16 max-w-6xl grid-cols-[1fr_auto_1fr] items-center px-8 mobile:flex mobile:max-w-[30rem] mobile:justify-between mobile:px-4">
         <Link href="/" className="flex items-center gap-2.5 justify-self-start">
-          <span className="grid h-7 w-7 -rotate-6 place-items-center rounded-md bg-hl text-sm font-bold text-hl-ink">
-            T
+          <span lang="ja" className="grid h-7 w-7 -rotate-6 place-items-center rounded-md bg-hl text-sm font-bold text-hl-ink">
+            た
           </span>
           <span className="text-lg font-semibold tracking-tight">Tandemo</span>
         </Link>

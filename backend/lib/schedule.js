@@ -60,7 +60,7 @@ function nextSchedule(card, grade, now = new Date()) {
   return { ease, interval, reps, lapses, due: addDays(now, interval), lastReviewedAt: now, ...firstReview };
 }
 
-// Same as Anki's defaults (200 reviews, 20 new cards a day).
+// Same as Anki's defaults: 200 reviews a day, and 20 new cards a day in each folder.
 const MAX_REVIEW = 200;
 const MAX_NEW = 20;
 

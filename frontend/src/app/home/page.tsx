@@ -97,7 +97,7 @@ export default function DecksPage() {
                 </p>
               </div>
               <div className="flex shrink-0 gap-2 mobile:grid mobile:grid-cols-2">
-                <Button variant="secondary" onClick={() => setDialog({ kind: "pdf" })}>Import from PDF</Button>
+                <Button variant="secondary" disabled onClick={() => setDialog({ kind: "pdf" })}>Import from PDF</Button>
                 <Button onClick={() => setDialog({ kind: "card" })}>Add card</Button>
               </div>
             </div>
@@ -165,7 +165,7 @@ export default function DecksPage() {
                 body="Add cards one at a time, or import a PDF of your notes and cards will be written for you."
               >
                 <div className="mt-6 flex justify-center gap-2">
-                  <Button variant="secondary" onClick={() => setDialog({ kind: "pdf" })}>Import from PDF</Button>
+                  <Button variant="secondary" disabled onClick={() => setDialog({ kind: "pdf" })}>Import from PDF</Button>
                   <Button onClick={() => setDialog({ kind: "card" })}>Add card</Button>
                 </div>
               </EmptyState>
@@ -414,14 +414,13 @@ function useResetOnOpen(open: boolean, reset: () => void) {
 }
 
 // Same limit as the server (backend/routes/flashcards.js). Longer text shrinks to fit the card.
-const MAX_WORDS = 100;
-const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
+const MAX_CHARS = 500;
 
-function WordCount({ text }: { text: string }) {
-  const n = countWords(text);
+function CharCount({ text }: { text: string }) {
+  const n = text.length;
   return (
-    <span className={`block text-right text-xs tabular-nums ${n > MAX_WORDS ? "text-bad" : "text-muted"}`}>
-      {n} / {MAX_WORDS} words
+    <span className={`block text-right text-xs tabular-nums ${n > MAX_CHARS ? "text-bad" : "text-muted"}`}>
+      {n} / {MAX_CHARS} characters
     </span>
   );
 }
@@ -457,18 +456,18 @@ function CardDialog({
   };
 
   const area = `${inputClass} h-auto resize-none py-2.5`;
-  const tooLong = countWords(q) > MAX_WORDS || countWords(a) > MAX_WORDS;
+  const tooLong = q.length > MAX_CHARS || a.length > MAX_CHARS;
 
   return (
     <Modal open={open} onClose={onClose} title={card ? "Edit card" : "Add card"}>
       <form onSubmit={save} className="space-y-4">
         <Field label="Question">
           <textarea ref={questionRef} autoFocus rows={3} value={q} onChange={(e) => setQ(e.target.value)} required className={area} />
-          <WordCount text={q} />
+          <CharCount text={q} />
         </Field>
         <Field label="Answer">
           <textarea rows={3} value={a} onChange={(e) => setA(e.target.value)} required className={area} />
-          <WordCount text={a} />
+          <CharCount text={a} />
         </Field>
         {error && <Notice>{error}</Notice>}
         <div className="flex justify-end gap-2 pt-2">

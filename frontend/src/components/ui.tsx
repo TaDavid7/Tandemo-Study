@@ -186,12 +186,15 @@ export function FlipCard({
   flipped,
   onFlip,
   className,
+  ruled,
 }: {
   front: React.ReactNode;
   back: React.ReactNode;
   flipped: boolean;
   onFlip?: () => void;
   className?: string;
+  /** Write on the card's ruled lines (see FitText). */
+  ruled?: boolean;
 }) {
   const face =
     "flip-face index-card absolute inset-0 flex flex-col rounded-xl border border-line shadow-[0_1px_0_var(--line),0_12px_30px_-12px_rgb(0_0_0/0.25)]";
@@ -206,11 +209,11 @@ export function FlipCard({
       >
         <div className={cx(face, "flip-face-front")}>
           <span className="px-7 pt-5 text-sm text-muted">Question</span>
-          <FitText className={body}>{front}</FitText>
+          <FitText className={body} ruled={ruled}>{front}</FitText>
         </div>
         <div className={cx(face, "flip-face-back")}>
           <span className="px-7 pt-5 text-sm text-muted">Answer</span>
-          <FitText className={body}>{back}</FitText>
+          <FitText className={body} ruled={ruled}>{back}</FitText>
         </div>
       </button>
     </div>
@@ -221,11 +224,38 @@ export function FlipCard({
 // Card text that keeps its line breaks and shrinks until it fits its box, down to
 // FIT_MIN of the box's font size. Anything still too tall scrolls from the first
 // line (m-auto rather than justify-center, so the top is never clipped).
+//
+// `ruled` writes on the lines of the surrounding .index-card when the text fits at
+// full size. Text that has to shrink can't follow them, so that card face drops its
+// lines instead (data-unruled in globals.css).
 
 const FIT_MIN = 0.5;
 const FIT_STEP = 0.05;
 
-export function FitText({ className, children }: { className?: string; children: React.ReactNode }) {
+// Where .index-card draws its rules, in px (globals.css).
+const RULE_TOP = 58;
+const RULE_GAP = 32;
+// Drops the words from the middle of each line to 3px above its rule. The baseline sits
+// 0.235em below the middle of a line in Newsreader, the card font.
+const BASELINE_SHIFT = `translateY(calc(${RULE_GAP / 2 - 4}px - 0.235em))`;
+
+/** Puts the text on the card's rules, centred. Returns false if it needs more lines than the card has. */
+function alignToRules(box: HTMLElement, text: HTMLElement) {
+  text.style.lineHeight = `${RULE_GAP}px`;
+  const top = box.offsetTop;
+  const bottom = top + box.clientHeight - parseFloat(getComputedStyle(box).paddingBottom);
+  const rows = Math.floor((bottom - RULE_TOP) / RULE_GAP);
+  const lines = Math.round(text.offsetHeight / RULE_GAP);
+  if (lines > rows) {
+    text.style.lineHeight = "";
+    return false;
+  }
+  text.style.marginTop = `${RULE_TOP + Math.floor((rows - lines) / 2) * RULE_GAP - top}px`;
+  text.style.transform = BASELINE_SHIFT;
+  return true;
+}
+
+export function FitText({ className, children, ruled }: { className?: string; children: React.ReactNode; ruled?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLDivElement>(null);
 
@@ -236,6 +266,13 @@ export function FitText({ className, children }: { className?: string; children:
     const fit = () => {
       let scale = 1;
       t.style.fontSize = "";
+      t.style.marginTop = "";
+      t.style.transform = "";
+      if (ruled) {
+        const aligned = alignToRules(b, t);
+        b.closest(".index-card")?.toggleAttribute("data-unruled", !aligned);
+        if (aligned) return;
+      }
       while (scale > FIT_MIN && b.scrollHeight > b.clientHeight) {
         scale -= FIT_STEP;
         t.style.fontSize = `${scale}em`;
@@ -248,7 +285,7 @@ export function FitText({ className, children }: { className?: string; children:
     let live = true;
     document.fonts?.ready.then(() => live && fit());
     return () => { live = false; ro.disconnect(); };
-  }, [children]);
+  }, [children, ruled]);
 
   return (
     <div ref={box} className={cx("flex min-h-0 flex-1 overflow-y-auto", className)}>

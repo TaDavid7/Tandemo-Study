@@ -5,6 +5,7 @@
 - ~~change icon to hiragana ta, and the browser tab to remove yellow color~~ (11/4)
 - ~~keep information lined with notecard in daily~~ (11/4)
 - ~~add paywall/block for pdf import~~ (11/4)
+- add a local feature with potential sync
 - drawing feature
 - add png and audio files
 - google signin

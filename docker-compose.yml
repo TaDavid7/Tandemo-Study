@@ -1,29 +1,38 @@
 # Runs the whole app in Docker: MongoDB, backend and frontend.
 #
-# First time only - create the database volume:
-#   docker volume create nandemo-mongo-data
+# First time only:
+#   1. Copy .env.example to .env (next to this file) and set a MongoDB password.
+#   2. Create the database volume:  docker volume create nandemo-mongo-data
 #
 # Start / stop:
 #   docker compose up -d --build   -> open http://localhost:3000
 #   docker compose down            -> stop (data is kept, even with -v)
 #
 # Back up the database to the backups/ folder:
-#   docker compose exec mongo sh -c 'mongodump --db mem_study --gzip --archive=/backups/mem_study-$(date +%F_%H%M).gz'
+#   docker compose exec mongo sh -c 'mongodump -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --db mem_study --gzip --archive=/backups/mem_study-$(date +%F_%H%M).gz'
 #
 # Restore a backup (REPLACES the current data with the backup's):
-#   docker compose exec mongo mongorestore --gzip --drop --archive=/backups/<file name>.gz
+#   docker compose exec mongo sh -c 'mongorestore -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --gzip --drop --archive=/backups/<file name>.gz'
 #
+# The MongoDB login comes from .env next to this file.
 # JWT_SECRET (and OPENAI_API_KEY, if you use PDF import) come from backend/.env.
+#
+# All ports are bound to 127.0.0.1, so only this computer can connect.
 
 services:
   mongo:
     image: mongo:8
     restart: unless-stopped
+    environment:
+      # Used only when the volume is empty, to create the login. Changing them later
+      # does nothing; see the README.
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env next to docker-compose.yml}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env next to docker-compose.yml}
     volumes:
       - mongo-data:/data/db # the database, kept in a Docker volume on this computer
       - ./backups:/backups # backup files, as normal files in this project's backups/ folder
     ports:
-      - "27017:27017" # for MongoDB Compass, and for `npm run dev` outside Docker
+      - "127.0.0.1:27017:27017" # for MongoDB Compass, and for `npm run dev` outside Docker
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 5s
@@ -36,11 +45,11 @@ services:
     env_file: ./backend/.env
     environment:
       # Values here override backend/.env.
-      MONGO_URL: mongodb://mongo:27017/mem_study
+      MONGO_URL: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/mem_study?authSource=admin
       PORT: 5000
       CORS_ORIGIN: http://localhost:3000
     ports:
-      - "5000:5000" # the browser connects here for Versus sockets
+      - "127.0.0.1:5000:5000" # the browser connects here for Versus sockets
     depends_on:
       mongo:
         condition: service_healthy # the backend doesn't retry its first connection
@@ -53,7 +62,7 @@ services:
         NEXT_PUBLIC_SOCKET_URL: http://localhost:5000 # browser opens sockets here
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
 

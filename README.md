@@ -33,8 +33,8 @@ https://tandemo.org/
 
 ### Prerequisites
 
-- Node.js v18+
-- A [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) account (free tier works)
+- **To run with Docker:** [Docker Desktop](https://www.docker.com/products/docker-desktop/). Nothing else is needed; MongoDB runs in a container.
+- **To run with npm:** Node.js v18+ and MongoDB, either installed locally or a [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) account (free tier works).
 
 ### 1. Clone the repository
 
@@ -43,7 +43,57 @@ git clone https://github.com/TaDavid7/mem_study.git
 cd mem_study
 ```
 
-### 2. Backend setup
+### 2. Run with Docker (recommended)
+
+This runs MongoDB, the backend (`node app.js`) and the frontend (`next start`) in containers. The database is stored on your computer, so no MongoDB Atlas account is needed.
+
+1. Start Docker Desktop.
+2. Create the backend settings file and set `JWT_SECRET` to a long random string. Docker ignores the file's `MONGO_URL` and uses the MongoDB container instead.
+   ```bash
+   cp backend/.env.example backend/.env
+   ```
+3. Create the database volume. You only do this once.
+   ```bash
+   docker volume create nandemo-mongo-data
+   ```
+4. Build and start everything:
+   ```bash
+   docker compose up -d --build
+   ```
+5. Open [http://localhost:3000](http://localhost:3000) and register an account.
+
+The containers restart whenever Docker Desktop starts. Turn on **Settings → General → Start Docker Desktop when you sign in**, and the app is ready after every reboot without opening a terminal.
+
+| Task                              | Command                                       |
+|-----------------------------------|-----------------------------------------------|
+| Start, or rebuild after code changes | `docker compose up -d --build`             |
+| Stop (data is kept)               | `docker compose down`                         |
+| See status                        | `docker compose ps`                           |
+| See backend output                | `docker compose logs backend`                 |
+
+#### Your data
+
+The database lives in the Docker volume `nandemo-mongo-data`. It is marked `external`, so `docker compose down` (even with `-v`) never deletes it. It is still lost if you delete the volume yourself, purge or reset Docker Desktop, or uninstall Docker Desktop, so keep backups.
+
+To browse the data, connect [MongoDB Compass](https://www.mongodb.com/products/tools/compass) to `mongodb://localhost:27017`.
+
+#### Backups
+
+Backups are written to the `backups/` folder, which is not committed to Git. Copy the files somewhere safe, such as cloud storage or a USB drive.
+
+```bash
+# Back up (creates backups/mem_study-<date>_<time>.gz; the time is UTC)
+docker compose exec mongo sh -c 'mongodump --db mem_study --gzip --archive=/backups/mem_study-$(date +%F_%H%M).gz'
+
+# Restore (REPLACES the current data with the backup's)
+docker compose exec mongo mongorestore --gzip --drop --archive=/backups/<file name>.gz
+```
+
+### 3. Or run with npm
+
+If the Docker containers are running, stop the frontend and backend first (`docker compose stop frontend backend`), because they use ports 3000 and 5000. You can keep the `mongo` container running and use it as your local database.
+
+#### Backend setup
 
 ```bash
 cd backend
@@ -55,7 +105,7 @@ Edit `.env` with your values:
 
 | Variable      | Description                                         |
 |---------------|-----------------------------------------------------|
-| `MONGO_URL`   | MongoDB Atlas connection string                     |
+| `MONGO_URL`   | MongoDB connection string. Leave it out to use a local MongoDB at `mongodb://127.0.0.1:27017/mem_study` |
 | `PORT`        | Express server port (e.g. `5000`)                   |
 | `CORS_ORIGIN` | Frontend URL (e.g. `http://localhost:3000`)         |
 | `JWT_SECRET`  | A long random string used to sign tokens            |
@@ -64,7 +114,7 @@ Edit `.env` with your values:
 npm run dev
 ```
 
-### 3. Frontend setup
+#### Frontend setup
 
 ```bash
 cd ../frontend

@@ -148,10 +148,16 @@ export function useCards(folderId: string) {
 
 let socket: Socket | null = null;
 
+// The socket server the browser connects to. NEXT_PUBLIC_SOCKET_URL overrides it (set at build time).
+// Unset in production means the same address as the page (AWS routes /socket.io).
+const SOCKET_URL =
+  process.env.NEXT_PUBLIC_SOCKET_URL ||
+  (process.env.NODE_ENV === "production" ? undefined : "http://localhost:5000");
+
 export function getSocket() {
   if (socket) return socket;
   const token = getToken();
-  socket = io(process.env.NODE_ENV === "production" ? undefined : "http://localhost:5000", {
+  socket = io(SOCKET_URL, {
     path: "/socket.io",
     transports: ["websocket"],
     withCredentials: true,

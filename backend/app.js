@@ -43,7 +43,10 @@ app.use("/api", dailyRoutes);
 
 // --- DB
 
-const MONGO_URL = process.env.MONGO_URL;
+// MONGO_URL picks the database. Outside production it defaults to a MongoDB on this computer.
+const LOCAL_MONGO_URL = "mongodb://127.0.0.1:27017/mem_study";
+const MONGO_URL =
+  process.env.MONGO_URL || (process.env.NODE_ENV === "production" ? "" : LOCAL_MONGO_URL);
 if (!MONGO_URL && process.env.NODE_ENV !== "test") {
   console.error("MONGO_URL is missing");
   process.exit(1);

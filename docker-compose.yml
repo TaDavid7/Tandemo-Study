@@ -1,0 +1,65 @@
+# Runs the whole app in Docker: MongoDB, backend and frontend.
+#
+# First time only - create the database volume:
+#   docker volume create nandemo-mongo-data
+#
+# Start / stop:
+#   docker compose up -d --build   -> open http://localhost:3000
+#   docker compose down            -> stop (data is kept, even with -v)
+#
+# Back up the database to the backups/ folder:
+#   docker compose exec mongo sh -c 'mongodump --db mem_study --gzip --archive=/backups/mem_study-$(date +%F_%H%M).gz'
+#
+# Restore a backup (REPLACES the current data with the backup's):
+#   docker compose exec mongo mongorestore --gzip --drop --archive=/backups/<file name>.gz
+#
+# JWT_SECRET (and OPENAI_API_KEY, if you use PDF import) come from backend/.env.
+
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db # the database, kept in a Docker volume on this computer
+      - ./backups:/backups # backup files, as normal files in this project's backups/ folder
+    ports:
+      - "27017:27017" # for MongoDB Compass, and for `npm run dev` outside Docker
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend # runs `node app.js`
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      # Values here override backend/.env.
+      MONGO_URL: mongodb://mongo:27017/mem_study
+      PORT: 5000
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - "5000:5000" # the browser connects here for Versus sockets
+    depends_on:
+      mongo:
+        condition: service_healthy # the backend doesn't retry its first connection
+
+  frontend:
+    build:
+      context: ./frontend # runs `next start`
+      args:
+        API_PROXY_URL: http://backend:5000 # Next.js server forwards /api here
+        NEXT_PUBLIC_SOCKET_URL: http://localhost:5000 # browser opens sockets here
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  # External: compose never creates or deletes it, so `docker compose down -v` can't
+  # wipe the database. Create it once with `docker volume create nandemo-mongo-data`.
+  mongo-data:
+    external: true
+    name: nandemo-mongo-data

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { ThemeProvider, useTheme } from "next-themes";
 import { MotionConfig, motion } from "framer-motion";
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { getUsername } from "@/lib/api";
+import { getUsername, useClientValue } from "@/lib/api";
 
 const navItems = [
   { href: "/home", label: "Decks", icon: "M4 7h12v12H4zM8 3h12v12" },
@@ -74,8 +74,8 @@ function useLayoutMode() {
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // The theme is only known in the browser, so the server renders a placeholder.
+  const mounted = useClientValue(() => true, false);
   if (!mounted) return <div className="h-9 w-9" />;
   const dark = resolvedTheme === "dark";
   return (
@@ -130,8 +130,8 @@ function LayoutToggle({ mobile, ready, onToggle }: { mobile: boolean; ready: boo
 
 function Header({ mobile, ready, onToggleLayout }: { mobile: boolean; ready: boolean; onToggleLayout: () => void }) {
   const pathname = usePathname();
-  const [user, setUser] = useState<string | null>(null);
-  useEffect(() => setUser(getUsername()), [pathname]);
+  // Reread on every render. Signing in navigates, and the pathname change re-renders this.
+  const user = useClientValue(getUsername, null);
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-desk/85 backdrop-blur">

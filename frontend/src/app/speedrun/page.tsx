@@ -86,7 +86,8 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
   const [wrong, setWrong] = useState(0);
   const [missed, setMissed] = useState<Card[]>([]);
   const [reveal, setReveal] = useState<string | null>(null);
-  const [over, setOver] = useState(false);
+  const [finishedEarly, setFinishedEarly] = useState(false);
+  const over = finishedEarly || left === 0;
   const controls = useAnimationControls();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -95,8 +96,6 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
     const id = setInterval(() => setLeft((t) => Math.max(0, t - 1)), 1000);
     return () => clearInterval(id);
   }, [over]);
-
-  useEffect(() => { if (left === 0) setOver(true); }, [left]);
 
   const advance = () => {
     setReveal(null);
@@ -126,7 +125,7 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
 
   const restart = () => {
     setDeck(shuffle(cards)); setI(0); setLeft(seconds); setRight(0); setWrong(0);
-    setMissed([]); setReveal(null); setGuess(""); setOver(false);
+    setMissed([]); setReveal(null); setGuess(""); setFinishedEarly(false);
   };
 
   if (over) {
@@ -177,7 +176,7 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
   return (
     <div className="mx-auto max-w-[42.5rem]">
       <div className="mb-6 flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => setOver(true)}>Finish early</Button>
+        <Button variant="ghost" size="sm" onClick={() => setFinishedEarly(true)}>Finish early</Button>
         <div className="flex gap-5 text-sm tabular-nums">
           <span className="text-good">{right} correct</span>
           <span className="text-bad">{wrong} missed</span>

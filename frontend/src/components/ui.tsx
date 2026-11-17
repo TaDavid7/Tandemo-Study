@@ -1,6 +1,6 @@
 // Shared building blocks used by every page.
 "use client";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -113,6 +113,14 @@ export function Notice({ tone = "bad", children }: { tone?: "bad" | "good"; chil
 
 const MODAL_CLOSE_MS = 200; // matches the transition in globals.css
 
+/** Renders its children, but stops updating while `frozen`, so it keeps showing the last ones. */
+const Frozen = memo(
+  function Frozen({ children }: { children: React.ReactNode; frozen: boolean }) {
+    return children;
+  },
+  (_, next) => next.frozen
+);
+
 export function Modal({
   open,
   onClose,
@@ -128,17 +136,12 @@ export function Modal({
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
+  const titleId = useId();
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) { setMounted(true); setClosing(false); }
     else if (mounted) setClosing(true);
   }
-
-  // While closing, keep showing what the dialog showed last, so the title or fields
-  // don't change under the fade (e.g. "Edit card" turning into "Add card").
-  const last = useRef({ title, children });
-  if (open) last.current = { title, children };
-  const shown = open ? { title, children } : last.current;
 
   useEffect(() => {
     if (!closing) return;
@@ -164,12 +167,16 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={shown.title}
+        aria-labelledby={titleId}
         className="modal-panel w-full max-w-lg rounded-xl border border-line bg-card p-6 shadow-2xl mobile:max-w-[30rem] mobile:rounded-b-none mobile:border-b-0 mobile:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-5 text-xl font-semibold">{shown.title}</h2>
-        {shown.children}
+        {/* While closing, keep showing what the dialog showed last, so the title or fields
+            don't change under the fade (e.g. "Edit card" turning into "Add card"). */}
+        <Frozen frozen={closing}>
+          <h2 id={titleId} className="mb-5 text-xl font-semibold">{title}</h2>
+          {children}
+        </Frozen>
       </div>
     </div>
   );
@@ -231,6 +238,7 @@ export function FlipCard({
 
 const FIT_MIN = 0.5;
 const FIT_STEP = 0.05;
+const FIT_STEPS = Math.round((1 - FIT_MIN) / FIT_STEP);
 
 // Where .index-card draws its rules, in px (globals.css).
 const RULE_TOP = 58;
@@ -263,9 +271,10 @@ export function FitText({ className, children, ruled }: { className?: string; ch
     const b = box.current;
     const t = text.current;
     if (!b || !t) return;
+    const overflows = () => b.scrollHeight > b.clientHeight;
+    const setStep = (step: number) => { t.style.fontSize = step ? `${1 - step * FIT_STEP}em` : ""; };
     const fit = () => {
-      let scale = 1;
-      t.style.fontSize = "";
+      setStep(0);
       t.style.marginTop = "";
       t.style.transform = "";
       if (ruled) {
@@ -273,17 +282,32 @@ export function FitText({ className, children, ruled }: { className?: string; ch
         b.closest(".index-card")?.toggleAttribute("data-unruled", !aligned);
         if (aligned) return;
       }
-      while (scale > FIT_MIN && b.scrollHeight > b.clientHeight) {
-        scale -= FIT_STEP;
-        t.style.fontSize = `${scale}em`;
+      if (!overflows()) return;
+      // Binary search for the largest size that fits. Each check forces a layout, so this
+      // takes ~4 instead of up to FIT_STEPS. Falls back to the smallest size.
+      let lo = 1;
+      let hi = FIT_STEPS;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        setStep(mid);
+        if (overflows()) lo = mid + 1;
+        else hi = mid;
       }
+      setStep(lo);
     };
     fit();
-    // Refit when the card changes size, and once the card font has loaded.
-    const ro = new ResizeObserver(fit);
+    // Refit when the card changes size. The observer also fires once right away;
+    // skip that, since the box hasn't changed since fit() above.
+    let size = { w: b.clientWidth, h: b.clientHeight };
+    const ro = new ResizeObserver(() => {
+      if (b.clientWidth === size.w && b.clientHeight === size.h) return;
+      size = { w: b.clientWidth, h: b.clientHeight };
+      fit();
+    });
     ro.observe(b);
+    // Refit once the card font has loaded, if it's still loading.
     let live = true;
-    document.fonts?.ready.then(() => live && fit());
+    if (document.fonts && document.fonts.status !== "loaded") document.fonts.ready.then(() => live && fit());
     return () => { live = false; ro.disconnect(); };
   }, [children, ruled]);
 

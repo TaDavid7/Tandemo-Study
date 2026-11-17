@@ -13,7 +13,7 @@ import {
 } from "framer-motion";
 import Lenis from "lenis";
 import "lenis/dist/lenis.css";
-import { getToken } from "@/lib/api";
+import { getToken, useClientValue } from "@/lib/api";
 import { EASE_OUT, FlipCard, Kbd } from "@/components/ui";
 
 const SAMPLES = [
@@ -65,12 +65,13 @@ const STEPS: { tab: string; title: string; body: string; Picture: React.Componen
 
 export default function LandingPage() {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  // null until hydrated. Signed-in visitors go straight to their decks.
+  const signedIn = useClientValue(() => getToken() !== null, null);
+  const ready = signedIn === false;
 
   useEffect(() => {
-    if (getToken()) router.replace("/home");
-    else setReady(true);
-  }, [router]);
+    if (signedIn) router.replace("/home");
+  }, [signedIn, router]);
 
   useSmoothScroll(ready);
 

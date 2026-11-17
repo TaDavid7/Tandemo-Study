@@ -140,7 +140,7 @@ export default function VersusRoomPage() {
           ) : room && question ? (
             <>
               <div className="index-card relative flex h-[17.5rem] flex-col overflow-hidden rounded-xl border border-line mobile:h-[15rem] shadow-[0_12px_30px_-12px_rgb(0_0_0/0.25)]">
-                {timed && deadline !== null && <TimeBar deadline={deadline} total={room.settings.seconds * 1000} />}
+                {timed && deadline !== null && <TimeBar key={deadline} deadline={deadline} total={room.settings.seconds * 1000} />}
                 <div className="flex items-center justify-between px-7 pt-5 text-sm text-muted">
                   <span>Question {room.currentIndex + 1} of {room.totalQuestions}</span>
                   {timed && deadline !== null && <Countdown deadline={deadline} />}
@@ -290,7 +290,11 @@ function GameSettings({
 function SecondsInput({ seconds, disabled, onChange }: { seconds: number; disabled: boolean; onChange: (s: number) => void }) {
   const [draft, setDraft] = useState(String(seconds));
   // Follow the room's value when it changes (a preset was picked, or the host is someone else).
-  useEffect(() => setDraft(String(seconds)), [seconds]);
+  const [synced, setSynced] = useState(seconds);
+  if (seconds !== synced) {
+    setSynced(seconds);
+    setDraft(String(seconds));
+  }
 
   const commit = () => {
     const n = Math.round(Number(draft));
@@ -336,12 +340,12 @@ function Countdown({ deadline }: { deadline: number }) {
   );
 }
 
-/** Highlighter bar along the top of the card that runs down with the clock. */
+/** Highlighter bar along the top of the card that runs down with the clock.
+ *  Keyed by deadline, so a new question mounts a new bar and rereads the time. */
 function TimeBar({ deadline, total }: { deadline: number; total: number }) {
-  const left = Math.max(0, deadline - Date.now());
+  const [left] = useState(() => Math.max(0, deadline - Date.now()));
   return (
     <motion.div
-      key={deadline}
       className="absolute inset-x-0 top-0 h-1 origin-left bg-hl"
       initial={{ scaleX: Math.min(1, left / total) }}
       animate={{ scaleX: 0 }}

@@ -1,8 +1,8 @@
 "use client";
-import React, { FormEvent, useEffect, useRef, useState } from "react";
+import React, { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { getUsername } from "@/lib/api";
+import { getUsername, useClientValue } from "@/lib/api";
 import { Button, Field, Notice, Panel, inputClass } from "@/components/ui";
 
 type Mode = "login" | "register";
@@ -17,21 +17,18 @@ function nextPage() {
 
 export default function AccountPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("login");
+  // "Create a free account" links here with ?mode=signup. The tabs override it once used.
+  const signupLink = useClientValue(() => new URLSearchParams(window.location.search).get("mode") === "signup", false);
+  const [chosenMode, setMode] = useState<Mode | null>(null);
+  const mode: Mode = chosenMode ?? (signupLink ? "register" : "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [busy, setBusy] = useState(false);
-  const [user, setUser] = useState<string | null>(null);
+  const user = useClientValue(getUsername, null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setUser(getUsername());
-    // "Create a free account" links here with ?mode=signup
-    if (new URLSearchParams(window.location.search).get("mode") === "signup") setMode("register");
-  }, []);
 
   const switchMode = (m: Mode) => {
     setMode(m);

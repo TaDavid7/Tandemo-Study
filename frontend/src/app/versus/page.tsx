@@ -1,21 +1,22 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { getSocket, getUsername, RoomState, useFolders, useRequireAuth } from "@/lib/api";
+import { getSocket, getUsername, RoomState, useClientValue, useFolders, useRequireAuth } from "@/lib/api";
 import { Button, Chip, Field, Notice, PageHeader, Panel, inputClass } from "@/components/ui";
 
 export default function VersusPage() {
   const signedIn = useRequireAuth();
   const router = useRouter();
   const { folders, loading } = useFolders();
-  const [name, setName] = useState("");
+  // Starts as the saved username until something is typed.
+  const savedName = useClientValue(getUsername, null);
+  const [typedName, setName] = useState<string | null>(null);
+  const name = typedName ?? savedName ?? "";
   const [folderId, setFolderId] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => setName(getUsername() || ""), []);
 
   if (!signedIn) return null;
 

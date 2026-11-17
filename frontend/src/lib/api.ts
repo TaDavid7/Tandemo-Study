@@ -1,7 +1,7 @@
 // Everything that talks to the backend lives here: shared types,
 // authenticated fetch, data hooks and the Versus socket.
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { io, Socket } from "socket.io-client";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -88,14 +88,26 @@ export async function api<T>(url: string, method = "GET", body?: unknown): Promi
   return data as T;
 }
 
+const noSubscribe = () => () => {};
+
+/**
+ * A value that only the browser knows (localStorage, the URL), read during render.
+ * The server render and hydration get `serverValue`, then React re-renders with
+ * `read()`. Reread on every render, so pass a cheap function that returns a string,
+ * number, boolean or null (an object would be "new" on every call).
+ */
+export function useClientValue<T>(read: () => T, serverValue: T) {
+  return useSyncExternalStore(noSubscribe, read, () => serverValue);
+}
+
 /** Redirects to sign in when there's no token. Returns true once signed in. */
 export function useRequireAuth() {
-  const [ok, setOk] = useState(false);
+  // null until hydrated, so the server render doesn't count as signed out
+  const signedIn = useClientValue(() => getToken() !== null, null);
   useEffect(() => {
-    if (!getToken()) window.location.href = signInUrl();
-    else setOk(true);
-  }, []);
-  return ok;
+    if (signedIn === false) window.location.href = signInUrl();
+  }, [signedIn]);
+  return signedIn === true;
 }
 
 /* ── Data hooks ────────────────────────────────────────── */
@@ -115,8 +127,8 @@ export function useFolders() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!getToken()) { setLoading(false); return; }
-    api<Folder[]>("/api/folders")
+    const request = getToken() ? api<Folder[]>("/api/folders") : Promise.resolve([]);
+    request
       .then((d) => setFolders(Array.isArray(d) ? d : []))
       .catch(() => setFolders([]))
       .finally(() => setLoading(false));
@@ -125,22 +137,33 @@ export function useFolders() {
   return { folders, setFolders, loading };
 }
 
+const NO_CARDS: Card[] = [];
+
 export function useCards(folderId: string) {
   const [cards, setCards] = useState<Card[]>([]);
-  const [loading, setLoading] = useState(false);
+  // The folder `cards` was loaded for. While it differs from folderId, a load is in flight.
+  const [loadedFor, setLoadedFor] = useState("");
+  // Bumped by reload() to fetch the same folder again.
+  const [version, setVersion] = useState(0);
 
-  const reload = useCallback(() => {
-    if (!folderId) { setCards([]); return Promise.resolve(); }
-    setLoading(true);
-    return api<Card[]>(`/api/flashcards?folderId=${folderId}`)
-      .then((d) => setCards(Array.isArray(d) ? d : []))
-      .catch(() => setCards([]))
-      .finally(() => setLoading(false));
-  }, [folderId]);
+  useEffect(() => {
+    if (!folderId) return;
+    let live = true; // ignore a slow response after switching folders
+    api<Card[]>(`/api/flashcards?folderId=${folderId}`)
+      .then((d) => (Array.isArray(d) ? d : []))
+      .catch(() => NO_CARDS)
+      .then((d) => {
+        if (!live) return;
+        setCards(d);
+        setLoadedFor(folderId);
+      });
+    return () => { live = false; };
+  }, [folderId, version]);
 
-  useEffect(() => { reload(); }, [reload]);
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
+  const loading = folderId !== "" && loadedFor !== folderId;
 
-  return { cards, setCards, loading, reload };
+  return { cards: folderId ? cards : NO_CARDS, setCards, loading, reload };
 }
 
 /* ── Versus socket ─────────────────────────────────────── */

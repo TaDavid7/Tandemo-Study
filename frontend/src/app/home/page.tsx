@@ -1,7 +1,7 @@
 "use client";
-import React, { FormEvent, useEffect, useRef, useState } from "react";
+import React, { FormEvent, memo, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "framer-motion";
-import { api, authfetch, Card, Folder, useCards, useFolders, useRequireAuth } from "@/lib/api";
+import { api, authfetch, Card, Folder, useCards, useClientValue, useFolders, useRequireAuth } from "@/lib/api";
 import { Button, EASE_OUT, Field, FlipCard, Kbd, Modal, Notice, Panel, inputClass } from "@/components/ui";
 import { useMobile } from "@/components/AppShell";
 
@@ -19,37 +19,53 @@ type Dialog =
 export default function DecksPage() {
   const signedIn = useRequireAuth();
   const { folders, setFolders, loading: foldersLoading } = useFolders();
-  const [folderId, setFolderId] = useState("");
+  // The open folder: the one picked here, else the one open last time, else the first.
+  // "" while folders load or after deleting the open one.
+  const [pickedFolder, setFolderId] = useState("");
+  const lastFolder = useClientValue(() => localStorage.getItem("lastFolder"), null);
+  const hasFolder = (id: string | null) => !!id && folders.some((f) => f._id === id);
+  const folderId = hasFolder(pickedFolder) ? pickedFolder : hasFolder(lastFolder) ? lastFolder! : folders[0]?._id ?? "";
   const { cards, setCards, reload } = useCards(folderId);
-  const [index, setIndex] = useState(0);
-  const [direction, setDirection] = useState<Move>({ dir: 1, swipe: false });
+  // The current card and how the deck got there, kept together so callbacks can update
+  // both from the previous value without depending on it (see openCard).
+  const [pos, setPos] = useState<{ index: number; move: Move }>({ index: 0, move: { dir: 1, swipe: false } });
+  const { index, move: direction } = pos;
   const [flipped, setFlipped] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const mobile = useMobile();
-  // Set while a swipe is in progress, so letting go doesn't also count as a tap-to-flip.
-  const swiping = useRef(false);
 
   const folder = folders.find((f) => f._id === folderId);
 
-  // Remember the last folder and open it again next time.
-  useEffect(() => {
-    if (!folders.length || folderId) return;
-    const saved = localStorage.getItem("lastFolder");
-    setFolderId(folders.some((f) => f._id === saved) ? saved! : folders[0]._id);
-  }, [folders, folderId]);
-
+  // Remember the open folder for next time.
   useEffect(() => {
     if (folderId) localStorage.setItem("lastFolder", folderId);
-    setIndex(0);
-    setFlipped(false);
   }, [folderId]);
+
+  // A different folder starts at its first card, question side up.
+  const [shownFolder, setShownFolder] = useState(folderId);
+  if (folderId !== shownFolder) {
+    setShownFolder(folderId);
+    setPos((p) => ({ ...p, index: 0 }));
+    setFlipped(false);
+  }
 
   const go = (step: number, swipe = false) => {
     if (!cards.length) return;
-    setDirection({ dir: step, swipe });
     setFlipped(false);
-    setIndex((i) => (i + step + cards.length) % cards.length);
+    setPos((p) => ({ index: (p.index + step + cards.length) % cards.length, move: { dir: step, swipe } }));
   };
+
+  // Stable callbacks, so the memoized sidebar and card list skip re-rendering when the deck moves.
+  const openCard = useCallback((i: number) => {
+    setPos((p) => ({ index: i, move: { dir: i > p.index ? 1 : -1, swipe: false } }));
+    setFlipped(false);
+  }, []);
+  const editCard = useCallback((card: Card) => setDialog({ kind: "card", card }), []);
+  const deleteCard = useCallback((card: Card) => setDialog({ kind: "deleteCard", card }), []);
+  const folderCreated = useCallback((f: Folder) => {
+    setFolders((all) => [...all, f]);
+    setFolderId(f._id);
+  }, [setFolders]);
 
   // Keyboard: ← → to move, space to flip.
   useEffect(() => {
@@ -76,7 +92,7 @@ export default function DecksPage() {
         loading={foldersLoading}
         selected={folderId}
         onSelect={setFolderId}
-        onCreated={(f) => { setFolders((all) => [...all, f]); setFolderId(f._id); }}
+        onCreated={folderCreated}
       />
 
       <section className="min-w-0">
@@ -129,13 +145,13 @@ export default function DecksPage() {
                         exit="exit"
                         transition={{ type: "spring", stiffness: 380, damping: 34 }}
                       >
-                        <Swipeable enabled={mobile} swiping={swiping} onSwipe={(step) => go(step, true)}>
+                        <Swipeable enabled={mobile} onSwipe={(step) => go(step, true)}>
                           <FlipCard
                             className="h-full"
                             front={current.question}
                             back={current.answer}
                             flipped={flipped}
-                            onFlip={() => { if (!swiping.current) setFlipped((f) => !f); }}
+                            onFlip={() => setFlipped((f) => !f)}
                           />
                         </Swipeable>
                       </motion.div>
@@ -153,10 +169,9 @@ export default function DecksPage() {
 
                 <CardList
                   cards={cards}
-                  currentId={current._id}
-                  onOpen={(i) => { setDirection({ dir: i > index ? 1 : -1, swipe: false }); setIndex(i); setFlipped(false); }}
-                  onEdit={(card) => setDialog({ kind: "card", card })}
-                  onDelete={(card) => setDialog({ kind: "deleteCard", card })}
+                  onOpen={openCard}
+                  onEdit={editCard}
+                  onDelete={deleteCard}
                 />
               </>
             ) : (
@@ -182,7 +197,7 @@ export default function DecksPage() {
         onClose={() => setDialog(null)}
         onSaved={(saved, isNew) => {
           setCards((all) => (isNew ? [...all, saved] : all.map((c) => (c._id === saved._id ? saved : c))));
-          if (isNew) { setDirection({ dir: 1, swipe: false }); setIndex(cards.length); setFlipped(false); }
+          if (isNew) { setPos({ index: cards.length, move: { dir: 1, swipe: false } }); setFlipped(false); }
         }}
       />
       <PdfDialog open={dialog?.kind === "pdf"} folderId={folderId} onClose={() => setDialog(null)} onImported={reload} />
@@ -215,7 +230,7 @@ export default function DecksPage() {
           const id = dialog.card._id;
           await api(`/api/flashcards/${id}`, "DELETE");
           setCards((all) => all.filter((c) => c._id !== id));
-          setIndex((i) => Math.max(0, Math.min(i, cards.length - 2)));
+          setPos((p) => ({ ...p, index: Math.max(0, Math.min(p.index, cards.length - 2)) }));
         }}
       />
     </div>
@@ -224,7 +239,8 @@ export default function DecksPage() {
 
 /* ── Pieces ─────────────────────────────────────────────── */
 
-function FolderSidebar({
+// Memoized: its layoutId highlight makes Motion measure layout on every render.
+const FolderSidebar = memo(function FolderSidebar({
   folders, loading, selected, onSelect, onCreated,
 }: {
   folders: Folder[]; loading: boolean; selected: string;
@@ -281,7 +297,7 @@ function FolderSidebar({
       {error && <div className="mt-2"><Notice>{error}</Notice></div>}
     </aside>
   );
-}
+});
 
 // A swipe counts once the card would end up this far from centre, counting a flick's speed.
 const SWIPE_DISTANCE = 90;
@@ -290,15 +306,15 @@ const FLICK_SECONDS = 0.2;
 /** Phone: the card follows your finger sideways. Swipe left for the next card, right for the previous one. */
 function Swipeable({
   enabled,
-  swiping,
   onSwipe,
   children,
 }: {
   enabled: boolean;
-  swiping: React.RefObject<boolean>;
   onSwipe: (step: 1 | -1) => void;
   children: React.ReactNode;
 }) {
+  // Set while a swipe is in progress, so letting go doesn't also count as a tap-to-flip.
+  const swiping = useRef(false);
   const x = useMotionValue(0);
   // Tilts a little as it moves, like a card held at the bottom edge.
   const rotate = useTransform(x, [-300, 300], [-8, 8]);
@@ -312,6 +328,8 @@ function Swipeable({
       dragElastic={1} // follows the finger 1:1
       dragTransition={{ bounceStiffness: 500, bounceDamping: 34 }} // springs back when you don't swipe far enough
       onDragStart={() => { swiping.current = true; }}
+      // Swallow the click that ends a drag before it reaches the card underneath.
+      onClickCapture={(e) => { if (swiping.current) e.stopPropagation(); }}
       onDragEnd={(_, { offset, velocity }) => {
         const landing = offset.x + velocity.x * FLICK_SECONDS;
         const step = landing < -SWIPE_DISTANCE ? 1 : landing > SWIPE_DISTANCE ? -1 : 0;
@@ -342,10 +360,11 @@ function ArrowButton({ dir, onClick }: { dir: 1 | -1; onClick: () => void }) {
   );
 }
 
-function CardList({
-  cards, currentId, onOpen, onEdit, onDelete,
+// Memoized and independent of the current card, so moving through the deck doesn't re-render every row.
+const CardList = memo(function CardList({
+  cards, onOpen, onEdit, onDelete,
 }: {
-  cards: Card[]; currentId: string;
+  cards: Card[];
   onOpen: (i: number) => void; onEdit: (c: Card) => void; onDelete: (c: Card) => void;
 }) {
   return (
@@ -365,9 +384,7 @@ function CardList({
               className="overflow-hidden"
             >
               <div
-                className={`group grid grid-cols-[2.5rem_1fr_1fr_auto] items-center gap-4 px-4 py-3 transition-[background-color,box-shadow] mobile:grid-cols-[1.25rem_minmax(0,1fr)_auto] mobile:gap-x-3 mobile:gap-y-0.5 mobile:px-3 ${
-                  c._id === currentId ? "bg-ink/[0.04] shadow-[inset_3px_0_var(--hl)]" : "hover:bg-ink/[0.03]"
-                }`}
+                className="group grid grid-cols-[2.5rem_1fr_1fr_auto] items-center gap-4 px-4 py-3 transition-colors hover:bg-ink/[0.03] mobile:grid-cols-[1.25rem_minmax(0,1fr)_auto] mobile:gap-x-3 mobile:gap-y-0.5 mobile:px-3"
               >
                 <span className="text-sm tabular-nums text-muted mobile:row-span-2 mobile:self-start mobile:pt-0.5">{i + 1}</span>
                 <button onClick={() => onOpen(i)} className="truncate text-left font-medium">{c.question}</button>
@@ -383,7 +400,7 @@ function CardList({
       </Panel>
     </div>
   );
-}
+});
 
 function EmptyState({ title, body, children }: { title: string; body: string; children?: React.ReactNode }) {
   return (

@@ -5,6 +5,9 @@ import { api, authfetch, Card, Folder, useCards, useClientValue, useFolders, use
 import { Button, EASE_OUT, Field, FlipCard, Kbd, Modal, Notice, Panel, inputClass } from "@/components/ui";
 import { useMobile } from "@/components/AppShell";
 
+/** See the deck's motion.div: its presence keeps every value of that animation in Motion's JS loop. */
+const keepOpacityInJs = () => {};
+
 /** Which way the deck last moved, and whether a swipe did it. */
 type Move = { dir: number; swipe: boolean };
 
@@ -144,6 +147,11 @@ export default function DecksPage() {
                         animate="center"
                         exit="exit"
                         transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                        // Any onUpdate keeps Motion from running the opacity fade as a browser
+                        // (WAAPI) animation. That fade fell out of step with the JS-driven x and
+                        // rotate: when the old card finished leaving, both cards jumped back to
+                        // their starting opacity for a frame, so every move ended in a flicker.
+                        onUpdate={keepOpacityInJs}
                       >
                         <Swipeable enabled={mobile} onSwipe={(step) => go(step, true)}>
                           <FlipCard

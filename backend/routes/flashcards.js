@@ -50,6 +50,56 @@ router.post("/", auth, async (req, res) => {
   }
 });
 
+// Folder import (see folderDetails.md). The browser sends the cards a few at a time;
+// these match IMPORT_BATCH_SIZE and MAX_IMPORT_CARDS in frontend/src/lib/folderFile.ts.
+const IMPORT_BATCH_SIZE = 25;
+const MAX_IMPORT_CARDS = 500;
+
+router.post("/batch", auth, async (req, res) => {
+  try {
+    const { folderId, cards } = req.body || {};
+    if (!folderId) return res.status(400).json({ error: "folderId is required" });
+    if (!Array.isArray(cards) || cards.length === 0) {
+      return res.status(400).json({ error: "cards must be a non-empty list" });
+    }
+    if (cards.length > IMPORT_BATCH_SIZE) {
+      return res.status(400).json({ error: `Send at most ${IMPORT_BATCH_SIZE} cards per request.` });
+    }
+    const bad = cards.findIndex(
+      (c) =>
+        typeof c?.question !== "string" || !c.question.trim() ||
+        typeof c?.answer !== "string" || !c.answer.trim() ||
+        tooLong(c.question, c.answer)
+    );
+    if (bad !== -1) {
+      return res.status(400).json({
+        error: `Card ${bad + 1} needs a question and an answer of up to ${MAX_CHARS} characters each.`,
+      });
+    }
+
+    const folder = await Folder.findOne({ _id: folderId, user: req.user._id });
+    if (!folder) return res.status(404).json({ error: "Folder not found" });
+
+    const existing = await Flashcard.countDocuments({ folder: folder._id, user: req.user._id });
+    if (existing + cards.length > MAX_IMPORT_CARDS) {
+      return res.status(400).json({ error: `An imported folder can hold at most ${MAX_IMPORT_CARDS} cards.` });
+    }
+
+    const created = await Flashcard.insertMany(
+      cards.map((c) => ({
+        question: c.question.trim(),
+        answer: c.answer.trim(),
+        folder: folder._id,
+        user: req.user._id,
+      }))
+    );
+    res.status(201).json({ createdCount: created.length });
+  } catch (e) {
+    if (e.name === "CastError") return res.status(404).json({ error: "Folder not found" });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.patch("/:id", auth, async (req, res) => {
   try {
     const { question, answer, folder } = req.body || {};

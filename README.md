@@ -160,6 +160,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the app.
    - **Study** — flip through your cards at your own pace
    - **Speedrun** — race through the deck against the clock
    - **Versus** — share a room code with friends and compete in real time
+4. Export a folder to a `.json` file, or import one (up to 500 cards) with **Import folder…** on the Decks page. The file format is in [folderDetails.md](folderDetails.md).
 
 ## Roadmap
 

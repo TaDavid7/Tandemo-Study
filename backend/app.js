@@ -13,7 +13,8 @@ const dailyRoutes = require("./routes/daily");
 const attachVersus = require("./sockets/versus");
 
 const app = express();
-app.use(express.json());
+// 1 MB, up from the 100 KB default, so a folder-import batch of 25 full-length cards fits.
+app.use(express.json({ limit: "1mb" }));
 
 // --- CORS
 

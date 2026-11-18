@@ -4,6 +4,10 @@ import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "
 import { api, authfetch, Card, Folder, useCards, useClientValue, useFolders, useRequireAuth } from "@/lib/api";
 import { Button, EASE_OUT, Field, FlipCard, Kbd, Modal, Notice, Panel, inputClass } from "@/components/ui";
 import { useMobile } from "@/components/AppShell";
+import {
+  IMPORT_BATCH_SIZE, MAX_FILE_BYTES, MAX_IMPORT_CARDS, FolderFileCard,
+  buildFolderFile, chunk, downloadTextFile, exportFileName, parseFolderFile, uniqueFolderName,
+} from "@/lib/folderFile";
 
 /** See the deck's motion.div: its presence keeps every value of that animation in Motion's JS loop. */
 const keepOpacityInJs = () => {};
@@ -14,6 +18,7 @@ type Move = { dir: number; swipe: boolean };
 type Dialog =
   | { kind: "card"; card?: Card }
   | { kind: "pdf" }
+  | { kind: "import" }
   | { kind: "rename" }
   | { kind: "deleteFolder" }
   | { kind: "deleteCard"; card: Card }
@@ -28,7 +33,7 @@ export default function DecksPage() {
   const lastFolder = useClientValue(() => localStorage.getItem("lastFolder"), null);
   const hasFolder = (id: string | null) => !!id && folders.some((f) => f._id === id);
   const folderId = hasFolder(pickedFolder) ? pickedFolder : hasFolder(lastFolder) ? lastFolder! : folders[0]?._id ?? "";
-  const { cards, setCards, reload } = useCards(folderId);
+  const { cards, setCards, reload, loading: cardsLoading } = useCards(folderId);
   // The current card and how the deck got there, kept together so callbacks can update
   // both from the previous value without depending on it (see openCard).
   const [pos, setPos] = useState<{ index: number; move: Move }>({ index: 0, move: { dir: 1, swipe: false } });
@@ -69,6 +74,7 @@ export default function DecksPage() {
     setFolders((all) => [...all, f]);
     setFolderId(f._id);
   }, [setFolders]);
+  const openImport = useCallback(() => setDialog({ kind: "import" }), []);
 
   // Keyboard: ← → to move, space to flip.
   useEffect(() => {
@@ -96,6 +102,7 @@ export default function DecksPage() {
         selected={folderId}
         onSelect={setFolderId}
         onCreated={folderCreated}
+        onImport={openImport}
       />
 
       <section className="min-w-0">
@@ -112,6 +119,15 @@ export default function DecksPage() {
                 <p className="mt-1.5 text-muted">
                   {cards.length} {cards.length === 1 ? "card" : "cards"}
                   <button onClick={() => setDialog({ kind: "rename" })} className="ml-4 underline-offset-4 hover:text-ink hover:underline">Rename</button>
+                  {cards.length > 0 && (
+                    <button
+                      disabled={cardsLoading}
+                      onClick={() => downloadTextFile(exportFileName(folder.name), buildFolderFile(folder.name, cards))}
+                      className="ml-3 underline-offset-4 hover:text-ink hover:underline disabled:opacity-40"
+                    >
+                      Export
+                    </button>
+                  )}
                   <button onClick={() => setDialog({ kind: "deleteFolder" })} className="ml-3 underline-offset-4 hover:text-bad hover:underline">Delete</button>
                 </p>
               </div>
@@ -209,6 +225,12 @@ export default function DecksPage() {
         }}
       />
       <PdfDialog open={dialog?.kind === "pdf"} folderId={folderId} onClose={() => setDialog(null)} onImported={reload} />
+      <ImportFolderDialog
+        open={dialog?.kind === "import"}
+        folderNames={folders.map((f) => f.name)}
+        onClose={() => setDialog(null)}
+        onImported={folderCreated}
+      />
       <RenameDialog
         open={dialog?.kind === "rename"}
         folder={folder}
@@ -249,10 +271,10 @@ export default function DecksPage() {
 
 // Memoized: its layoutId highlight makes Motion measure layout on every render.
 const FolderSidebar = memo(function FolderSidebar({
-  folders, loading, selected, onSelect, onCreated,
+  folders, loading, selected, onSelect, onCreated, onImport,
 }: {
   folders: Folder[]; loading: boolean; selected: string;
-  onSelect: (id: string) => void; onCreated: (f: Folder) => void;
+  onSelect: (id: string) => void; onCreated: (f: Folder) => void; onImport: () => void;
 }) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -303,6 +325,9 @@ const FolderSidebar = memo(function FolderSidebar({
         <Button size="sm" variant="secondary" className="h-9" aria-label="Create folder">Add</Button>
       </form>
       {error && <div className="mt-2"><Notice>{error}</Notice></div>}
+      <Button size="sm" variant="ghost" className="mt-2 w-full justify-start px-3" onClick={onImport}>
+        Import folder…
+      </Button>
     </aside>
   );
 });
@@ -561,6 +586,180 @@ function PdfDialog({
           {status === "loading" ? "Importing…" : "Import PDF"}
         </Button>
       </div>
+    </Modal>
+  );
+}
+
+/** Tries a request a few times before giving up, waiting a little longer each time. */
+async function withRetries<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await run();
+    } catch (err) {
+      if (i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 500 * i));
+    }
+  }
+}
+
+type ImportState =
+  | { step: "pick" }
+  | { step: "ready"; fileName: string; cards: FolderFileCard[] }
+  | { step: "importing"; done: number; total: number }
+  | { step: "done"; name: string; total: number }
+  | { step: "failed"; name: string; done: number; total: number; message: string };
+
+/**
+ * Reads a folder file (format in folderDetails.md), checks every card, then makes a
+ * new folder and sends the cards IMPORT_BATCH_SIZE at a time rather than all at once.
+ */
+function ImportFolderDialog({
+  open, folderNames, onClose, onImported,
+}: { open: boolean; folderNames: string[]; onClose: () => void; onImported: (f: Folder) => void }) {
+  const [state, setState] = useState<ImportState>({ step: "pick" });
+  const [name, setName] = useState("");
+  const [errors, setErrors] = useState<string[]>([]);
+  const [dragging, setDragging] = useState(false);
+
+  useResetOnOpen(open, () => { setState({ step: "pick" }); setName(""); setErrors([]); });
+
+  const busy = state.step === "importing";
+
+  const readFile = async (file: File | undefined) => {
+    if (!file || busy) return;
+    setErrors([]);
+    if (file.size > MAX_FILE_BYTES) {
+      setState({ step: "pick" });
+      setErrors([`The file is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB.`]);
+      return;
+    }
+    const parsed = parseFolderFile(await file.text(), file.name);
+    if (!parsed.ok) {
+      setState({ step: "pick" });
+      setErrors(parsed.errors);
+      return;
+    }
+    setName(uniqueFolderName(parsed.name, folderNames));
+    setState({ step: "ready", fileName: file.name, cards: parsed.cards });
+  };
+
+  const runImport = async (e: FormEvent) => {
+    e.preventDefault();
+    if (state.step !== "ready") return;
+    const { cards } = state;
+    const total = cards.length;
+    setErrors([]);
+
+    let folder: Folder;
+    try {
+      folder = await api<Folder>("/api/folders", "POST", { name: name.trim() });
+    } catch (err) {
+      const msg = (err as Error).message;
+      setErrors([msg === "folder exists" ? "You already have a folder with that name. Choose another name." : msg]);
+      return;
+    }
+
+    let done = 0;
+    setState({ step: "importing", done, total });
+    try {
+      for (const batch of chunk(cards, IMPORT_BATCH_SIZE)) {
+        await withRetries(() => api("/api/flashcards/batch", "POST", { folderId: folder._id, cards: batch }));
+        done += batch.length;
+        setState({ step: "importing", done, total });
+      }
+      setState({ step: "done", name: folder.name, total });
+    } catch (err) {
+      setState({ step: "failed", name: folder.name, done, total, message: (err as Error).message });
+    }
+    // Show the new folder, with whatever cards made it in.
+    onImported(folder);
+  };
+
+  return (
+    <Modal open={open} onClose={busy ? () => {} : onClose} title="Import folder">
+      {state.step === "importing" || state.step === "done" || state.step === "failed" ? (
+        <div>
+          <div className="mb-2 flex justify-between text-sm">
+            <span className="font-medium">
+              {state.step === "importing" ? "Importing cards…" : state.step === "done" ? "Import finished" : "Import stopped"}
+            </span>
+            <span className="tabular-nums text-muted">{state.step === "done" ? state.total : state.done} / {state.total}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-ink/10">
+            <div
+              className={`h-full rounded-full transition-[width] duration-300 ${state.step === "failed" ? "bg-bad" : "bg-good"}`}
+              style={{ width: `${((state.step === "done" ? state.total : state.done) / state.total) * 100}%` }}
+            />
+          </div>
+          <div className="mt-4 min-h-10">
+            {state.step === "done" && (
+              <Notice tone="good">Added {state.total} card{state.total === 1 ? "" : "s"} to “{state.name}”.</Notice>
+            )}
+            {state.step === "failed" && (
+              <Notice>
+                Added {state.done} of {state.total} cards to “{state.name}”, then stopped: {state.message}
+              </Notice>
+            )}
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button onClick={onClose} disabled={busy}>{busy ? "Importing…" : "Close"}</Button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={runImport}>
+          <p className="mb-4 text-sm text-muted">
+            Choose a <code>.json</code> folder file, such as one made with Export. It becomes a new folder with up
+            to {MAX_IMPORT_CARDS} cards. See <code>folderDetails.md</code> for the format.
+          </p>
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); readFile(e.dataTransfer.files[0]); }}
+            className={`flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition ${
+              dragging ? "border-info bg-info/5" : "border-line hover:border-muted"
+            }`}
+          >
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={(e) => { readFile(e.target.files?.[0]); e.target.value = ""; }}
+            />
+            <span className="font-medium">{state.step === "ready" ? state.fileName : "Drop a folder file here"}</span>
+            <span className="mt-1 text-sm text-muted">
+              {state.step === "ready"
+                ? `${state.cards.length} card${state.cards.length === 1 ? "" : "s"} · click to choose a different file`
+                : "or click to choose one"}
+            </span>
+          </label>
+
+          {state.step === "ready" && (
+            <div className="mt-4">
+              <Field label="Folder name">
+                <input value={name} onChange={(e) => setName(e.target.value)} required className={inputClass} />
+              </Field>
+            </div>
+          )}
+
+          {errors.length > 0 && (
+            <div className="mt-4">
+              <Notice>
+                {errors.length === 1 ? errors[0] : (
+                  <span className="block">
+                    The file can&apos;t be imported:
+                    {errors.map((m) => <span key={m} className="mt-1 block">{m}</span>)}
+                  </span>
+                )}
+              </Notice>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-6">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button disabled={state.step !== "ready" || !name.trim()}>Import</Button>
+          </div>
+        </form>
+      )}
     </Modal>
   );
 }

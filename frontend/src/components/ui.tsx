@@ -1,7 +1,7 @@
 // Shared building blocks used by every page.
 "use client";
 import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { animate, motion, useMotionValue, useTransform } from "framer-motion";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -183,9 +183,10 @@ export function Modal({
 }
 
 /* ── Flip card ────────────────────────────────────────── */
-// The index card used for studying everywhere in the app.
-// The turn is a CSS transition (.flip-card in globals.css), so it runs on the
-// compositor and reverses from mid-turn if the card is flipped again.
+// The index card used for studying everywhere in the app. Its text sits on the
+// card's ruled lines (FitText). The turn is a CSS transition (.flip-card in
+// globals.css), so it runs on the compositor and reverses from mid-turn if the card
+// is flipped again.
 
 export function FlipCard({
   front,
@@ -193,19 +194,23 @@ export function FlipCard({
   flipped,
   onFlip,
   className,
-  ruled,
+  small,
 }: {
   front: React.ReactNode;
   back: React.ReactNode;
   flipped: boolean;
   onFlip?: () => void;
   className?: string;
-  /** Write on the card's ruled lines (see FitText). */
-  ruled?: boolean;
+  /** Smaller side margins and text, for small cards such as the pictures on the landing page. */
+  small?: boolean;
 }) {
   const face =
     "flip-face index-card absolute inset-0 flex flex-col rounded-xl border border-line shadow-[0_1px_0_var(--line),0_12px_30px_-12px_rgb(0_0_0/0.25)]";
-  const body = "px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:pb-8 mobile:text-2xl";
+  const body = cx(
+    "pb-2 text-center font-card",
+    small ? "px-5 text-2xl" : "px-10 text-3xl mobile:px-6 mobile:text-2xl"
+  );
+  const label = cx("pt-5 text-sm text-muted", small ? "px-5" : "px-7");
   return (
     <div className={cx("flip-card", className)} data-flipped={flipped ? "" : undefined}>
       <button
@@ -215,51 +220,134 @@ export function FlipCard({
         className="flip-card-inner relative block h-full w-full cursor-pointer text-left"
       >
         <div className={cx(face, "flip-face-front")}>
-          <span className="px-7 pt-5 text-sm text-muted">Question</span>
-          <FitText className={body} ruled={ruled}>{front}</FitText>
+          <span className={label}>Question</span>
+          <FitText className={body} ruled>{front}</FitText>
         </div>
         <div className={cx(face, "flip-face-back")}>
-          <span className="px-7 pt-5 text-sm text-muted">Answer</span>
-          <FitText className={body} ruled={ruled}>{back}</FitText>
+          <span className={label}>Answer</span>
+          <FitText className={body} ruled>{back}</FitText>
         </div>
       </button>
     </div>
   );
 }
 
+/* ── Swipe ────────────────────────────────────────────── */
+
+// A swipe counts once the card would end up this far from centre, counting a flick's speed.
+const SWIPE_DISTANCE = 90;
+const FLICK_SECONDS = 0.2;
+
+/** The card follows your finger (or the mouse) sideways. Swipe left for the next card, right for the previous one. */
+export function Swipeable({
+  enabled,
+  onSwipe,
+  children,
+}: {
+  enabled: boolean;
+  onSwipe: (step: 1 | -1) => void;
+  children: React.ReactNode;
+}) {
+  // Set while a swipe is in progress, so letting go doesn't also count as a tap-to-flip.
+  const swiping = useRef(false);
+  const x = useMotionValue(0);
+  // Tilts a little as it moves, like a card held at the bottom edge.
+  const rotate = useTransform(x, [-300, 300], [-8, 8]);
+
+  return (
+    <motion.div
+      className="h-full"
+      style={{ x, rotate }}
+      drag={enabled ? "x" : false}
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={1} // follows the finger 1:1
+      dragTransition={{ bounceStiffness: 500, bounceDamping: 34 }} // springs back when you don't swipe far enough
+      onDragStart={() => { swiping.current = true; }}
+      // Swallow the click that ends a drag before it reaches the card underneath.
+      onClickCapture={(e) => { if (swiping.current) e.stopPropagation(); }}
+      onDragEnd={(_, { offset, velocity }) => {
+        const landing = offset.x + velocity.x * FLICK_SECONDS;
+        const step = landing < -SWIPE_DISTANCE ? 1 : landing > SWIPE_DISTANCE ? -1 : 0;
+        if (step) {
+          // Keep going off-screen at the speed it was thrown, instead of springing back first.
+          animate(x, step * -window.innerWidth, { type: "spring", velocity: velocity.x, stiffness: 220, damping: 30 });
+          onSwipe(step);
+        }
+        setTimeout(() => { swiping.current = false; }, 0);
+      }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 /* ── Fit text ─────────────────────────────────────────── */
-// Card text that keeps its line breaks and shrinks until it fits its box, down to
-// FIT_MIN of the box's font size. Anything still too tall scrolls from the first
-// line (m-auto rather than justify-center, so the top is never clipped).
+// Card text that keeps its line breaks and always fits its box.
 //
-// `ruled` writes on the lines of the surrounding .index-card when the text fits at
-// full size. Text that has to shrink can't follow them, so that card face drops its
-// lines instead (data-unruled in globals.css).
+// `ruled` writes the text on the lines of the surrounding .index-card: one line of
+// text per rule, centred in the rows the box covers. Text that needs more lines than
+// the card has gets smaller, and the card's rules move closer together to match
+// (RULE_SCALES), so the words stay on the lines. Only text too long even for the
+// closest rules drops the lines (data-unruled in globals.css) and shrinks freely.
+//
+// Without `ruled`, the text shrinks until it fits, down to FIT_MIN of the box's font
+// size. Anything still too tall scrolls from the first line (m-auto rather than
+// justify-center, so the top is never clipped).
 
 const FIT_MIN = 0.5;
 const FIT_STEP = 0.05;
 const FIT_STEPS = Math.round((1 - FIT_MIN) / FIT_STEP);
 
-// Where .index-card draws its rules, in px (globals.css).
-const RULE_TOP = 58;
-const RULE_GAP = 32;
-// Drops the words from the middle of each line to 3px above its rule. The baseline sits
-// 0.235em below the middle of a line in Newsreader, the card font.
-const BASELINE_SHIFT = `translateY(calc(${RULE_GAP / 2 - 4}px - 0.235em))`;
+// Where .index-card draws its rules, in rem (globals.css): the first rule, and the gap
+// between rules. Both are rounded to whole pixels, the same as the CSS.
+const RULE_TOP_REM = 3.625;
+const RULE_GAP_REM = 2;
+// Rule gaps (and text sizes) to try, as a share of the full size, largest first.
+const RULE_SCALES = [1, 0.875, 0.75, 0.65, 0.56, 0.5];
+// Ruled text is a little smaller than the box's font size, so each line has some room
+// between its words and the rule above.
+const RULED_TEXT = 0.88;
+// Each line of text is one rule gap tall. This moves the words from the middle of the
+// line down to just above its rule: 3/8 of a gap below the middle, less the distance
+// from the middle of a line to the baseline in Newsreader, the card font (0.235em).
+const baselineShift = (gap: number) => `translateY(calc(${(gap * 3) / 8}px - 0.235em))`;
 
-/** Puts the text on the card's rules, centred. Returns false if it needs more lines than the card has. */
-function alignToRules(box: HTMLElement, text: HTMLElement) {
-  text.style.lineHeight = `${RULE_GAP}px`;
-  const top = box.offsetTop;
-  const bottom = top + box.clientHeight - parseFloat(getComputedStyle(box).paddingBottom);
-  const rows = Math.floor((bottom - RULE_TOP) / RULE_GAP);
-  const lines = Math.round(text.offsetHeight / RULE_GAP);
-  if (lines > rows) {
-    text.style.lineHeight = "";
-    return false;
+/** The top of `el` measured from the top of `ancestor`. Ignores transforms, so it's right mid-animation. */
+function offsetWithin(el: HTMLElement, ancestor: HTMLElement): number {
+  let top = 0;
+  let node: HTMLElement | null = el;
+  while (node && node !== ancestor) {
+    const parent = node.offsetParent as HTMLElement | null;
+    top += node.offsetTop;
+    // offsetParent jumps over static elements; if it jumped past `ancestor`, measure back down.
+    if (parent && parent !== ancestor && !ancestor.contains(parent)) return top - offsetWithin(ancestor, parent);
+    node = parent;
   }
-  text.style.marginTop = `${RULE_TOP + Math.floor((rows - lines) / 2) * RULE_GAP - top}px`;
-  text.style.transform = BASELINE_SHIFT;
+  return top;
+}
+
+/**
+ * Tries to put the text on the card's rules at `scale` of the full size. Sets the
+ * card's rule gap to match and returns true if every line of text fits on a rule.
+ */
+function alignToRules(card: HTMLElement, box: HTMLElement, text: HTMLElement, scale: number) {
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const ruleTop = Math.round(RULE_TOP_REM * rem);
+  const gap = Math.round(RULE_GAP_REM * rem * scale);
+  card.style.setProperty("--rule-gap", `${gap}px`);
+  text.style.fontSize = `${scale * RULED_TEXT}em`;
+  text.style.lineHeight = `${gap}px`;
+
+  const boxTop = offsetWithin(box, card);
+  const boxBottom = boxTop + box.clientHeight - parseFloat(getComputedStyle(box).paddingBottom);
+  // The first row that starts inside the box, and how many whole rows fit below it.
+  const first = ruleTop + Math.max(0, Math.ceil((boxTop - ruleTop) / gap)) * gap;
+  const rows = Math.floor((boxBottom - first) / gap);
+  const lines = Math.round(text.offsetHeight / gap);
+  if (lines > rows) return false;
+
+  text.style.marginTop = `${first + Math.floor((rows - lines) / 2) * gap - boxTop}px`;
+  text.style.transform = baselineShift(gap);
   return true;
 }
 
@@ -271,16 +359,21 @@ export function FitText({ className, children, ruled }: { className?: string; ch
     const b = box.current;
     const t = text.current;
     if (!b || !t) return;
+    const card = ruled ? b.closest<HTMLElement>(".index-card") : null;
     const overflows = () => b.scrollHeight > b.clientHeight;
     const setStep = (step: number) => { t.style.fontSize = step ? `${1 - step * FIT_STEP}em` : ""; };
     const fit = () => {
       setStep(0);
+      t.style.lineHeight = "";
       t.style.marginTop = "";
       t.style.transform = "";
-      if (ruled) {
-        const aligned = alignToRules(b, t);
-        b.closest(".index-card")?.toggleAttribute("data-unruled", !aligned);
+      if (card) {
+        const aligned = RULE_SCALES.some((scale) => alignToRules(card, b, t, scale));
+        card.toggleAttribute("data-unruled", !aligned);
         if (aligned) return;
+        card.style.removeProperty("--rule-gap");
+        setStep(0);
+        t.style.lineHeight = "";
       }
       if (!overflows()) return;
       // Binary search for the largest size that fits. Each check forces a layout, so this
@@ -296,8 +389,9 @@ export function FitText({ className, children, ruled }: { className?: string; ch
       setStep(lo);
     };
     fit();
-    // Refit when the card changes size. The observer also fires once right away;
-    // skip that, since the box hasn't changed since fit() above.
+    // Refit when the card changes size, which includes the window changing width (rem
+    // sizes follow it). The observer also fires once right away; skip that, since the
+    // box hasn't changed since fit() above.
     let size = { w: b.clientWidth, h: b.clientHeight };
     const ro = new ResizeObserver(() => {
       if (b.clientWidth === size.w && b.clientHeight === size.h) return;
@@ -313,7 +407,8 @@ export function FitText({ className, children, ruled }: { className?: string; ch
 
   return (
     <div ref={box} className={cx("flex min-h-0 flex-1 overflow-y-auto", className)}>
-      <div ref={text} className="m-auto whitespace-pre-wrap break-words">{children}</div>
+      {/* overflow-wrap:anywhere lets a long word with no spaces break instead of running off the card */}
+      <div ref={text} className="m-auto max-w-full whitespace-pre-wrap leading-snug [overflow-wrap:anywhere]">{children}</div>
     </div>
   );
 }

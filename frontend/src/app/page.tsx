@@ -14,9 +14,9 @@ import {
 import Lenis from "lenis";
 import "lenis/dist/lenis.css";
 import { getToken, useClientValue } from "@/lib/api";
-import { EASE_OUT, FlipCard, Kbd } from "@/components/ui";
+import { EASE_OUT, FitText, FlipCard, Kbd, Swipeable, inputClass } from "@/components/ui";
 
-const SAMPLES = [
+const SAMPLES: DemoCard[] = [
   { q: "なんでも (nandemo)", a: "Anything, whatever it is" },
   { q: "Mitochondria", a: "Where the cell makes most of its energy (ATP)" },
   { q: "Year the Berlin Wall fell", a: "1989" },
@@ -115,25 +115,72 @@ const reveal = (delay = 0) => ({
   transition: { duration: 0.6, ease: EASE_OUT, delay },
 });
 
+type DemoCard = { q: string; a: string };
+/** Which way the demo deck last moved, and whether a swipe did it. */
+type Move = { dir: number; swipe: boolean };
+
+// Cards written on the landing page are kept short and few; they only live on this page.
+const DEMO_MAX_CHARS = 120;
+/** Most cards the demo deck holds, the samples included. */
+const DEMO_MAX_CARDS = 10;
+
+/**
+ * The hero's deck of sample cards. It flips and deals itself until you touch it; from
+ * then on it's yours: click to flip, drag sideways or use the arrows to move, and write
+ * your own cards into it.
+ */
 function Hero() {
   const ref = useRef<HTMLElement>(null);
   const reduce = useReducedMotion();
-  const [i, setI] = useState(0);
+  const [deck, setDeck] = useState<DemoCard[]>(SAMPLES);
+  const [pos, setPos] = useState<{ i: number; move: Move }>({ i: 0, move: { dir: 1, swipe: false } });
   const [flipped, setFlipped] = useState(false);
+  const [autoplay, setAutoplay] = useState(true);
+  const [writing, setWriting] = useState(false);
+  const card = deck[pos.i];
+  const groupRef = useRef<HTMLDivElement>(null);
+  // Set when the arrow keys move the deck: the focused card is replaced, so focus moves
+  // to the new one and Space keeps flipping.
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    groupRef.current?.querySelector<HTMLElement>(`[data-card="${pos.i}"] .flip-card-inner`)?.focus({ preventScroll: true });
+  }, [pos.i]);
 
   // As the hero scrolls away the card stack drifts up and tilts, and the cue fades.
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
   const drift = useTransform(scrollYProgress, (v) => (reduce ? "none" : `translateY(${v * -90}px) rotate(${v * -6}deg)`));
   const cueOpacity = useTransform(scrollYProgress, [0, 0.12], [1, 0]);
 
-  // The demo card flips, then moves to the next sample.
+  // Until you touch it, the demo card flips, then moves to the next sample.
   useEffect(() => {
+    if (!autoplay) return;
     const id = setTimeout(() => {
       if (!flipped) setFlipped(true);
-      else { setFlipped(false); setI((n) => (n + 1) % SAMPLES.length); }
+      else {
+        setFlipped(false);
+        setPos((p) => ({ i: (p.i + 1) % SAMPLES.length, move: { dir: 1, swipe: false } }));
+      }
     }, flipped ? 2200 : 1800);
     return () => clearTimeout(id);
-  }, [flipped]);
+  }, [flipped, autoplay]);
+
+  const go = (dir: 1 | -1, swipe = false) => {
+    setAutoplay(false);
+    setFlipped(false);
+    setPos((p) => ({ i: (p.i + dir + deck.length) % deck.length, move: { dir, swipe } }));
+  };
+  const flip = () => {
+    setAutoplay(false);
+    setFlipped((f) => !f);
+  };
+  const add = (c: DemoCard) => {
+    if (deck.length >= DEMO_MAX_CARDS) return;
+    setDeck((d) => [...d, c]);
+    setPos({ i: deck.length, move: { dir: 1, swipe: false } });
+    setFlipped(false);
+  };
 
   return (
     <section ref={ref} className="relative flex min-h-[calc(100svh-7rem)] flex-col">
@@ -151,30 +198,80 @@ function Hero() {
           </motion.div>
         </div>
 
-        <motion.div style={{ transform: drift }}>
-          <motion.div
-            initial={{ opacity: 0, rotate: 4, y: 30 }}
-            animate={{ opacity: 1, rotate: -2, y: 0 }}
-            transition={{ type: "spring", stiffness: 120, damping: 16 }}
-            className="relative h-[20rem] mobile:h-[15rem]"
-          >
-            <div className="absolute inset-0 translate-x-4 translate-y-4 rotate-3 rounded-xl border border-line bg-card/60" />
-            <div className="absolute inset-0 translate-x-2 translate-y-2 rotate-1 rounded-xl border border-line bg-card/80" />
-            {/* The finished card slides off (still showing its answer) while the next one slides in. */}
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.div
-                key={i}
-                className="absolute inset-0"
-                initial={{ opacity: 0, transform: "translateX(40px) rotate(0deg)" }}
-                animate={{ opacity: 1, transform: "translateX(0px) rotate(0deg)" }}
-                exit={{ opacity: 0, transform: "translateX(-60px) rotate(-4deg)" }}
-                transition={{ duration: 0.35, ease: EASE_OUT }}
-              >
-                <FlipCard className="h-full" front={SAMPLES[i].q} back={SAMPLES[i].a} flipped={flipped} onFlip={() => setFlipped((f) => !f)} />
-              </motion.div>
-            </AnimatePresence>
+        <div
+          ref={groupRef}
+          role="group"
+          aria-label="Sample flashcards"
+          onKeyDown={(e) => {
+            if ((e.target as HTMLElement).tagName === "INPUT") return;
+            const dir = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+            if (!dir) return;
+            e.preventDefault();
+            refocus.current = (e.target as HTMLElement).classList.contains("flip-card-inner");
+            go(dir);
+          }}
+        >
+          <motion.div style={{ transform: drift }}>
+            <motion.div
+              initial={{ opacity: 0, rotate: 4, y: 30 }}
+              animate={{ opacity: 1, rotate: -2, y: 0 }}
+              transition={{ type: "spring", stiffness: 120, damping: 16 }}
+              className="relative h-[20rem] mobile:h-[15rem]"
+            >
+              <div className="absolute inset-0 translate-x-4 translate-y-4 rotate-3 rounded-xl border border-line bg-card/60" />
+              <div className="absolute inset-0 translate-x-2 translate-y-2 rotate-1 rounded-xl border border-line bg-card/80" />
+              {/* The finished card slides off (still showing its answer) while the next one slides in. */}
+              <AnimatePresence mode="popLayout" custom={pos.move} initial={false}>
+                <motion.div
+                  key={pos.i}
+                  data-card={pos.i}
+                  custom={pos.move}
+                  className="absolute inset-0"
+                  variants={{
+                    enter: ({ dir }: Move) => ({ opacity: 0, transform: `translateX(${dir * 40}px) rotate(0deg)` }),
+                    center: { opacity: 1, transform: "translateX(0px) rotate(0deg)" },
+                    // A swiped card is already flying off under the pointer (see Swipeable), so it only fades.
+                    exit: ({ dir, swipe }: Move) =>
+                      swipe
+                        ? { opacity: 0, transition: { duration: 0.25, ease: EASE_OUT } }
+                        : { opacity: 0, transform: `translateX(${dir * -60}px) rotate(${dir * -4}deg)` },
+                  }}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.35, ease: EASE_OUT }}
+                >
+                  <Swipeable enabled onSwipe={(step) => go(step, true)}>
+                    <FlipCard className="h-full" front={card.q} back={card.a} flipped={flipped} onFlip={flip} />
+                  </Swipeable>
+                </motion.div>
+              </AnimatePresence>
+            </motion.div>
           </motion.div>
-        </motion.div>
+
+          <div className="mt-9 flex items-center justify-center gap-4">
+            <DeckArrow dir={-1} onClick={() => go(-1)} />
+            <span className="min-w-14 text-center text-sm font-medium tabular-nums">
+              {pos.i + 1} / {deck.length}
+            </span>
+            <DeckArrow dir={1} onClick={() => go(1)} />
+          </div>
+          <p className="mt-3 text-center text-sm text-muted">
+            Click the card to flip it. Drag it sideways or use the arrows for the next one.
+          </p>
+          <div className="mt-5 flex justify-center">
+            {writing ? (
+              <WriteCardForm onAdd={add} left={DEMO_MAX_CARDS - deck.length} onClose={() => setWriting(false)} />
+            ) : (
+              <button
+                onClick={() => { setAutoplay(false); setWriting(true); }}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium underline-offset-4 transition hover:bg-ink/5"
+              >
+                + Write your own card
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Lenis turns this anchor into a smooth scroll */}
@@ -189,6 +286,72 @@ function Hero() {
         </svg>
       </motion.a>
     </section>
+  );
+}
+
+function DeckArrow({ dir, onClick }: { dir: 1 | -1; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={dir === 1 ? "Next card" : "Previous card"}
+      className="grid h-10 w-10 place-items-center rounded-full border border-line bg-card text-muted transition hover:border-muted hover:text-ink active:scale-90"
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+        <path d={dir === 1 ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6"} strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Adds a card to the hero's demo deck, which holds DEMO_MAX_CARDS. `left` is how many
+ * more fit. Nothing is saved; that needs an account.
+ */
+function WriteCardForm({ onAdd, left, onClose }: { onAdd: (c: DemoCard) => void; left: number; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [a, setA] = useState("");
+  const full = left <= 0;
+  const field = `${inputClass} h-10 text-sm disabled:opacity-50`;
+
+  return (
+    <motion.form
+      initial={{ opacity: 0, transform: "translateY(6px)" }}
+      animate={{ opacity: 1, transform: "translateY(0px)" }}
+      transition={{ duration: 0.25, ease: EASE_OUT }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (full) return;
+        onAdd({ q: q.trim(), a: a.trim() });
+        setQ("");
+        setA("");
+      }}
+      className="w-full max-w-md"
+    >
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mobile:grid-cols-1">
+        <input autoFocus disabled={full} value={q} onChange={(e) => setQ(e.target.value)} maxLength={DEMO_MAX_CHARS} required placeholder="Question" aria-label="Question" className={field} />
+        <input disabled={full} value={a} onChange={(e) => setA(e.target.value)} maxLength={DEMO_MAX_CHARS} required placeholder="Answer" aria-label="Answer" className={field} />
+        <button disabled={full || !q.trim() || !a.trim()} className="h-10 rounded-lg bg-ink px-4 text-sm font-medium text-card transition hover:opacity-90 disabled:opacity-40">
+          Add
+        </button>
+      </div>
+      {full ? (
+        <p role="status" className="mt-2 flex justify-between gap-4 rounded-lg bg-hl/15 px-3 py-2 text-xs">
+          <span>
+            The demo deck is full at {DEMO_MAX_CARDS} cards.{" "}
+            <Link href="/account?mode=signup" className="font-semibold underline underline-offset-2">Make a free account</Link>{" "}
+            to write as many as you like.
+          </span>
+          <button type="button" onClick={onClose} className="shrink-0 text-muted hover:text-ink">Done</button>
+        </p>
+      ) : (
+        <p className="mt-2 flex justify-between gap-4 text-xs text-muted">
+          <span>
+            Room for {left} more card{left === 1 ? "" : "s"}. Cards you write here aren&apos;t saved; make an account to keep them.
+          </span>
+          <button type="button" onClick={onClose} className="shrink-0 hover:text-ink">Done</button>
+        </p>
+      )}
+    </motion.form>
   );
 }
 
@@ -775,23 +938,41 @@ function NotesPicture() {
   );
 }
 
+// The two cards in the deck picture's list.
+const DECK_CARDS = NOTE_CARDS.slice(0, 2);
+
+/** Flips by itself until you click: the card flips, the list picks a card, ← → move. */
 function DeckPicture() {
+  const [k, setK] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [autoplay, setAutoplay] = useState(true);
   useEffect(() => {
+    if (!autoplay) return;
     const id = setTimeout(() => setFlipped((f) => !f), flipped ? 2200 : 1400);
     return () => clearTimeout(id);
-  }, [flipped]);
+  }, [flipped, autoplay]);
+
+  const open = (n: number) => {
+    setAutoplay(false);
+    setK((n + DECK_CARDS.length) % DECK_CARDS.length);
+    setFlipped(false);
+  };
+  const flip = () => {
+    setAutoplay(false);
+    setFlipped((f) => !f);
+  };
+  const hintKey = "rounded transition hover:-translate-y-px hover:text-ink";
 
   return (
     <div className="grid h-full grid-cols-[110px_minmax(0,1fr)] gap-5 p-6">
       <div>
         <p className="mb-2 px-2 text-[11px] font-medium text-muted">Folders</p>
-        {["Biology", "French", "History"].map((f, k) => (
+        {["Biology", "French", "History"].map((f, n) => (
           <p
             key={f}
-            className={`relative truncate rounded-md px-2 py-1.5 text-xs ${k === 0 ? "bg-card font-semibold shadow-sm ring-1 ring-line" : "text-muted"}`}
+            className={`relative truncate rounded-md px-2 py-1.5 text-xs ${n === 0 ? "bg-card font-semibold shadow-sm ring-1 ring-line" : "text-muted"}`}
           >
-            {k === 0 && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-r bg-hl" />}
+            {n === 0 && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-r bg-hl" />}
             {f}
           </p>
         ))}
@@ -802,30 +983,29 @@ function DeckPicture() {
           <p className="text-lg font-bold tracking-tight">Biology</p>
           <p className="text-xs text-muted">18 cards</p>
         </div>
-        <FlipCard
-          className="mt-3 h-[168px]"
-          front={<span className="text-xl">{NOTE_CARDS[0].q}</span>}
-          back={<span className="text-xl">{NOTE_CARDS[0].a}</span>}
-          flipped={flipped}
-          onFlip={() => setFlipped((f) => !f)}
-        />
+        <FlipCard small className="mt-3 h-[168px]" front={DECK_CARDS[k].q} back={DECK_CARDS[k].a} flipped={flipped} onFlip={flip} />
         <div className="mt-3 flex justify-center gap-4 text-[11px] text-muted">
-          <span className="flex items-center gap-1"><Kbd>←</Kbd><Kbd>→</Kbd> move</span>
-          <span className="flex items-center gap-1"><Kbd>Space</Kbd> flip</span>
+          <span className="flex items-center gap-1">
+            <button aria-label="Previous card" onClick={() => open(k - 1)} className={hintKey}><Kbd>←</Kbd></button>
+            <button aria-label="Next card" onClick={() => open(k + 1)} className={hintKey}><Kbd>→</Kbd></button>
+            move
+          </span>
+          <button onClick={flip} className={`flex items-center gap-1 ${hintKey}`}><Kbd>Space</Kbd> flip</button>
         </div>
         <div className="mt-3 divide-y divide-line overflow-hidden rounded-lg border border-line bg-card text-xs">
-          {NOTE_CARDS.slice(0, 2).map((c, k) => (
-            <div
+          {DECK_CARDS.map((c, n) => (
+            <button
               key={c.q}
-              className={`grid grid-cols-[1rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 ${
-                k === 0 ? "bg-ink/[0.04] shadow-[inset_3px_0_var(--hl)]" : ""
+              onClick={() => open(n)}
+              className={`grid w-full grid-cols-[1rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left transition-colors ${
+                n === k ? "bg-ink/[0.04] shadow-[inset_3px_0_var(--hl)]" : "hover:bg-ink/[0.03]"
               }`}
             >
-              <span className="tabular-nums text-muted">{k + 1}</span>
+              <span className="tabular-nums text-muted">{n + 1}</span>
               <span className="truncate font-medium">{c.q}</span>
               <span className="truncate text-muted">{c.a}</span>
               <span className="text-muted">Edit</span>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -834,46 +1014,122 @@ function DeckPicture() {
 }
 
 const GRADES = [
-  { label: "Again", hint: "Forgot", cls: "border-bad/40 bg-card text-bad" },
-  { label: "Hard", hint: "Barely", cls: "border-warn/40 bg-card text-warn" },
-  { label: "Good", hint: "Got it", cls: "border-good bg-good/10 text-good" },
-  { label: "Easy", hint: "Instantly", cls: "border-info/40 bg-card text-info" },
+  { label: "Again", hint: "Forgot", cls: "border-bad/40 bg-card text-bad hover:bg-bad/10", note: "bg-bad/10 text-bad" },
+  { label: "Hard", hint: "Barely", cls: "border-warn/40 bg-card text-warn hover:bg-warn/10", note: "bg-warn/10 text-warn" },
+  { label: "Good", hint: "Got it", cls: "border-good/40 bg-card text-good hover:bg-good/10", note: "bg-good/10 text-good" },
+  { label: "Easy", hint: "Instantly", cls: "border-info/40 bg-card text-info hover:bg-info/10", note: "bg-info/10 text-info" },
 ];
+const GOOD = 2;
 
+// Cards part-way through their schedule, so each grade sends them back after a different gap.
+const DAILY_CARDS = [
+  { q: "ありがとう", a: "Thank you", ease: 2.5, interval: 6, reps: 2 },
+  { q: "Capital of Canada", a: "Ottawa", ease: 2.5, interval: 1, reps: 1 },
+  { q: "Largest planet in the solar system", a: "Jupiter", ease: 2.3, interval: 15, reps: 3 },
+];
+const DAILY_TOTAL = 20;
+
+/** Days until a card comes back after `grade` (0 Again … 3 Easy), by the rules in backend/lib/schedule.js. */
+function daysUntilNext(card: (typeof DAILY_CARDS)[number], grade: number) {
+  if (grade === 0 || card.reps === 0) return 1;
+  if (card.reps === 1) return 6;
+  const ease = Math.min(3, Math.max(1.3, card.ease + [-0.2, -0.15, 0, 0.15][grade]));
+  return Math.max(1, Math.round(card.interval * ease));
+}
+
+/** Show the answer, then grade it: the card says when it will come back. Plays itself until clicked. */
 function DailyPicture() {
+  const [n, setN] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [reviewed, setReviewed] = useState(7);
+  const [note, setNote] = useState<{ id: number; grade: number; text: string } | null>(null);
+  const [autoplay, setAutoplay] = useState(true);
+  const card = DAILY_CARDS[n % DAILY_CARDS.length];
+
+  const grade = (g: number) => {
+    const days = daysUntilNext(card, g);
+    setNote({ id: n, grade: g, text: `${GRADES[g].label}: back ${days === 1 ? "tomorrow" : `in ${days} days`}` });
+    setReviewed((r) => (r + 1 > DAILY_TOTAL ? 1 : r + 1));
+    setN((k) => k + 1);
+    setFlipped(false);
+  };
+
+  // Until you click, it shows the answer, then grades the card Good.
+  useEffect(() => {
+    if (!autoplay) return;
+    const id = setTimeout(() => (flipped ? grade(GOOD) : setFlipped(true)), flipped ? 1800 : 1600);
+    return () => clearTimeout(id);
+  });
+
+  // Any click takes over from the demo.
+  const take = (fn: () => void) => () => { setAutoplay(false); fn(); };
+
   return (
     <div className="flex h-full flex-col p-6">
       <div className="flex items-center justify-between text-xs text-muted">
         <span>← End session</span>
-        <span className="tabular-nums">7 of 20 reviewed</span>
+        <span className="tabular-nums">{reviewed} of {DAILY_TOTAL} reviewed</span>
       </div>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
-        <div className="h-full w-[35%] rounded-full bg-hl" />
+        <div className="h-full rounded-full bg-hl transition-[width] duration-300" style={{ width: `${(reviewed / DAILY_TOTAL) * 100}%` }} />
       </div>
 
-      <div className={`index-card mt-5 flex min-h-0 flex-1 flex-col rounded-xl border border-line ${faceShadow}`}>
-        <span className="px-6 pt-5 text-sm text-muted">Answer</span>
-        <div className="flex flex-1 items-center justify-center px-8 pb-8 text-center font-card text-2xl leading-snug">
-          Thank you
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-4 gap-2">
-        {GRADES.map((g, k) => (
+      <div className="relative mt-5 min-h-0 flex-1">
+        <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
-            key={g.label}
-            initial={{ opacity: 0, transform: "translateY(8px)" }}
-            whileInView={{ opacity: 1, transform: "translateY(0px)" }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.25, ease: EASE_OUT, delay: 0.15 + k * 0.05 }}
-            className={`flex h-14 flex-col items-center justify-center rounded-lg border text-sm ${g.cls}`}
+            key={n}
+            className="absolute inset-0"
+            initial={{ opacity: 0, transform: "translateY(16px) scale(0.97)" }}
+            animate={{ opacity: 1, transform: "translateY(0px) scale(1)" }}
+            exit={{ opacity: 0, transform: "translateY(-24px) rotate(-3deg)" }}
+            transition={{ duration: 0.3, ease: EASE_OUT }}
           >
-            <span className="font-semibold">{g.label}</span>
-            <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted">
-              <Kbd>{k + 1}</Kbd> {g.hint}
-            </span>
+            <FlipCard small className="h-full" front={card.q} back={card.a} flipped={flipped} onFlip={take(() => setFlipped((f) => !f))} />
           </motion.div>
-        ))}
+        </AnimatePresence>
+        <AnimatePresence>
+          {note && (
+            <motion.span
+              key={note.id}
+              initial={{ opacity: 0, transform: "translateY(-4px)" }}
+              animate={{ opacity: 1, transform: "translateY(0px)" }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: EASE_OUT }}
+              className={`pointer-events-none absolute right-3 top-3 z-10 rounded-md px-2 py-1 text-[11px] font-medium ${GRADES[note.grade].note}`}
+            >
+              {note.text}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="mt-4 h-14">
+        {flipped ? (
+          <div className="grid h-full grid-cols-4 gap-2">
+            {GRADES.map((g, k) => (
+              <motion.button
+                key={g.label}
+                initial={{ opacity: 0, transform: "translateY(8px)" }}
+                animate={{ opacity: 1, transform: "translateY(0px)" }}
+                transition={{ duration: 0.2, ease: EASE_OUT, delay: k * 0.04 }}
+                onClick={take(() => grade(k))}
+                className={`flex flex-col items-center justify-center rounded-lg border text-sm transition-colors ${g.cls}`}
+              >
+                <span className="font-semibold">{g.label}</span>
+                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted">
+                  <Kbd>{k + 1}</Kbd> {g.hint}
+                </span>
+              </motion.button>
+            ))}
+          </div>
+        ) : (
+          <button
+            onClick={take(() => setFlipped(true))}
+            className="flex h-full w-full items-center justify-center gap-2 rounded-lg bg-ink text-sm font-medium text-card transition hover:opacity-90"
+          >
+            Show answer <Kbd>Space</Kbd>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -885,12 +1141,23 @@ const RUN = [
   { q: "Chemical symbol for gold", a: "Au" },
 ];
 
+// Case and spaces don't matter when checking a typed answer here.
+const squash = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+
+/** Types its own answers until you click the box. Then you type, and Enter checks. */
 function SpeedrunPicture() {
   const [left, setLeft] = useState(42);
   const [n, setN] = useState(0);
-  const [typed, setTyped] = useState(0);
+  const [typed, setTyped] = useState(0); // letters the demo has typed so far
+  const [guess, setGuess] = useState<string | null>(null); // null while the demo types by itself
+  const [right, setRight] = useState(12);
+  const [missed, setMissed] = useState(2);
+  const [answer, setAnswer] = useState<string | null>(null); // shown after a wrong guess
+  const [flash, setFlash] = useState<"good" | "bad" | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const card = RUN[n % RUN.length];
-  const done = typed === card.a.length;
+  const demo = guess === null;
+  const done = demo && typed === card.a.length;
   const urgent = left <= 10;
 
   useEffect(() => {
@@ -898,22 +1165,58 @@ function SpeedrunPicture() {
     return () => clearInterval(id);
   }, []);
 
-  // Type the answer a letter at a time, hold it a moment, then go to the next card.
+  const next = () => {
+    setN((k) => k + 1);
+    setTyped(0);
+    setAnswer(null);
+    setFlash(null);
+    setGuess((g) => (g === null ? null : ""));
+  };
+
+  // The demo types the answer a letter at a time, holds it a moment, then goes on.
   useEffect(() => {
+    if (!demo) return;
     const id = setTimeout(() => {
-      if (done) { setN((k) => k + 1); setTyped(0); }
+      if (done) { setRight((r) => r + 1); setN((k) => k + 1); setTyped(0); }
       else setTyped((k) => k + 1);
     }, done ? 650 : 120);
     return () => clearTimeout(id);
-  }, [typed, done]);
+  }, [typed, done, demo]);
+
+  const check = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (demo) { setGuess(""); inputRef.current?.focus(); return; }
+    if (answer !== null || flash || !guess?.trim()) return;
+    if (squash(guess) === squash(card.a)) {
+      setRight((r) => r + 1);
+      setFlash("good");
+      setTimeout(next, 500);
+    } else {
+      setMissed((m) => m + 1);
+      setAnswer(card.a);
+      setFlash("bad");
+      setTimeout(next, 1300);
+    }
+  };
+
+  // Memoized: FitText refits whenever its children change.
+  const cardText = React.useMemo(
+    () => (
+      <>
+        {card.q}
+        {answer !== null && <span className="block text-bad">Answer: {answer}</span>}
+      </>
+    ),
+    [card.q, answer]
+  );
 
   return (
     <div className="flex h-full flex-col p-6">
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted">Finish early</span>
         <span className="flex gap-4 tabular-nums">
-          <span className="text-good">{12 + n} correct</span>
-          <span className="text-bad">2 missed</span>
+          <span className="text-good">{right} correct</span>
+          <span className="text-bad">{missed} missed</span>
         </span>
       </div>
 
@@ -927,28 +1230,42 @@ function SpeedrunPicture() {
         <span className={`w-10 text-right text-2xl font-bold tabular-nums ${urgent ? "text-bad" : ""}`}>{left}</span>
       </div>
 
-      <div className={`index-card mt-6 flex h-[160px] items-center justify-center rounded-xl border border-line px-8 text-center ${faceShadow}`}>
+      <div
+        className={`index-card mt-6 flex h-[160px] flex-col rounded-xl border px-8 pt-5 text-center transition-colors ${faceShadow} ${
+          flash === "bad" ? "border-bad" : flash === "good" ? "border-good" : "border-line"
+        }`}
+      >
         <AnimatePresence mode="wait" initial={false}>
-          <motion.p
+          <motion.div
             key={n}
             initial={{ opacity: 0, transform: "translateY(12px)" }}
             animate={{ opacity: 1, transform: "translateY(0px)" }}
             exit={{ opacity: 0, transform: "translateY(-12px)" }}
             transition={{ duration: 0.15, ease: EASE_OUT }}
-            className="font-card text-2xl leading-snug"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            {card.q}
-          </motion.p>
+            <FitText ruled className="pb-2 font-card text-2xl">{cardText}</FitText>
+          </motion.div>
         </AnimatePresence>
       </div>
 
-      <div className="mt-5 flex gap-2">
-        <div className={`flex h-11 flex-1 items-center rounded-lg border bg-card px-3 transition-colors ${done ? "border-good" : "border-info"}`}>
-          {card.a.slice(0, typed)}
-          <span className="ml-px h-5 w-px bg-ink motion-safe:animate-pulse" />
-        </div>
-        <span className="inline-flex h-11 items-center rounded-lg bg-ink px-5 text-sm font-medium text-card">Check</span>
-      </div>
+      <form onSubmit={check} className="mt-5 flex gap-2">
+        <input
+          ref={inputRef}
+          value={demo ? card.a.slice(0, typed) : guess}
+          onFocus={() => { if (demo) setGuess(""); }}
+          onChange={(e) => setGuess(e.target.value)}
+          placeholder="Type the answer and press Enter"
+          aria-label="Your answer"
+          className={`h-11 min-w-0 flex-1 rounded-lg border bg-card px-3 outline-none transition-colors ${
+            flash === "good" || done ? "border-good" : flash === "bad" ? "border-bad" : "border-info"
+          }`}
+        />
+        <button className="inline-flex h-11 items-center rounded-lg bg-ink px-5 text-sm font-medium text-card transition hover:opacity-90">
+          Check
+        </button>
+      </form>
+      <p className="mt-2.5 text-[11px] text-muted">{demo ? "Click the box to try it yourself." : "Your turn. Spaces and capitals don't matter."}</p>
     </div>
   );
 }
@@ -962,12 +1279,19 @@ const PLAYERS = [
 // Who answers first in each round, so the order keeps changing.
 const ROUND_WINNERS = ["You", "You", "Kenji", "Maya", "You", "Sam", "Kenji", "Kenji"];
 
+/** Reveals and moves on by itself until you use the two buttons. */
 function VersusPicture() {
   const [round, setRound] = useState(0);
+  const [shown, setShown] = useState(false);
+  const [autoplay, setAutoplay] = useState(true);
   useEffect(() => {
-    const id = setInterval(() => setRound((r) => r + 1), 1800);
-    return () => clearInterval(id);
-  }, []);
+    if (!autoplay) return;
+    const id = setTimeout(() => {
+      if (!shown) setShown(true);
+      else { setShown(false); setRound((r) => r + 1); }
+    }, shown ? 1100 : 900);
+    return () => clearTimeout(id);
+  }, [shown, autoplay]);
 
   const q = RUN[round % RUN.length];
   const ranked = PLAYERS.map((p) => ({
@@ -987,24 +1311,44 @@ function VersusPicture() {
         <div className={`index-card relative mt-3 flex flex-1 flex-col rounded-xl border border-line ${faceShadow}`}>
           <span className="px-5 pt-5 text-sm text-muted">Question</span>
           <AnimatePresence mode="wait" initial={false}>
-            <motion.p
+            <motion.div
               key={round}
               initial={{ opacity: 0, transform: "translateY(12px)" }}
               animate={{ opacity: 1, transform: "translateY(0px)" }}
               exit={{ opacity: 0, transform: "translateY(-12px)" }}
               transition={{ duration: 0.15, ease: EASE_OUT }}
-              className="flex flex-1 items-center justify-center px-6 pb-14 text-center font-card text-2xl leading-snug"
+              className="flex min-h-0 flex-1 flex-col"
             >
-              {q.q}
-            </motion.p>
+              <FitText ruled className="px-6 pb-14 text-center font-card text-2xl">{q.q}</FitText>
+            </motion.div>
           </AnimatePresence>
-          <div className="absolute inset-x-4 bottom-4 rounded-lg bg-hl px-3 py-1.5 text-center text-sm text-hl-ink">
-            Answer: <span className="font-semibold">{q.a}</span>
-          </div>
+          <AnimatePresence>
+            {shown && (
+              <motion.div
+                initial={{ opacity: 0, transform: "translateY(6px)" }}
+                animate={{ opacity: 1, transform: "translateY(0px)" }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: EASE_OUT }}
+                className="absolute inset-x-4 bottom-4 rounded-lg bg-hl px-3 py-1.5 text-center text-sm text-hl-ink"
+              >
+                Answer: <span className="font-semibold">{q.a}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         <div className="mt-4 flex gap-2 text-sm font-medium">
-          <span className="inline-flex h-9 items-center rounded-lg border border-line bg-card px-3">Reveal answer</span>
-          <span className="inline-flex h-9 items-center rounded-lg bg-ink px-3 text-card">Next question</span>
+          <button
+            onClick={() => { setAutoplay(false); setShown((s) => !s); }}
+            className="inline-flex h-9 items-center rounded-lg border border-line bg-card px-3 transition hover:border-muted"
+          >
+            {shown ? "Hide answer" : "Reveal answer"}
+          </button>
+          <button
+            onClick={() => { setAutoplay(false); setShown(false); setRound((r) => r + 1); }}
+            className="inline-flex h-9 items-center rounded-lg bg-ink px-3 text-card transition hover:opacity-90"
+          >
+            Next question
+          </button>
         </div>
       </div>
 

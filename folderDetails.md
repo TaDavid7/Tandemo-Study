@@ -3,7 +3,8 @@
 Nandemo Study can export a folder to a file and import that file again. You can also write an import file yourself, in a text editor or from a script. This page describes that file.
 
 - **Export:** open a folder on the Decks page and click **Export** next to the folder name. The browser downloads `<folder name>.json`.
-- **Import:** on the Decks page, click **Import folder…** under the folder list and choose a `.json` file. The cards go into a **new** folder; an existing folder never changes.
+- **Import as a new folder:** on the Decks page, click **Import folder…** under the folder list and choose a `.json` file. The cards go into a **new** folder.
+- **Import into an existing folder:** open the folder and click **Import cards** next to its name. The file's cards are added after the cards already in the folder. The file's `name` is ignored.
 
 ## Example
 
@@ -51,15 +52,16 @@ Import removes spaces and line breaks from the start and end of every question a
 ## Limits
 
 - **Cards:** an import can have at most **500 cards**, and at least 1.
+- **Cards in an existing folder:** importing into a folder can take it up to **500 cards** in total. If the folder's cards plus the file's cards would be more than 500, the import is rejected before anything is sent, and nothing is added. The dialog says how many cards the folder has room for. For example, a folder with 480 cards can take a file with up to 20 cards.
 - **Characters:** each question and each answer can have at most **500 characters**. This limit is the same as in the Add card dialog.
 - **File size:** at most **5 MB**.
 
 ## What import does
 
 1. The browser reads the whole file and checks every card before it sends anything. If the file has problems, nothing is imported. The dialog shows the first five problems with their card numbers (for example, `Card 12: "answer" is missing or empty.`).
-2. You can change the folder name before you import. If you already have a folder with that name, the dialog suggests `Name (2)`, `Name (3)` and so on.
-3. The app makes the new folder, then sends the cards **25 at a time**. It does not send all of them in one request. A progress bar shows how many cards are in. If a request fails, the app tries it again two more times.
-4. If a request still fails, the import stops. The new folder keeps the cards that were added, and the dialog tells you how many. To try again, delete that folder and import the file again.
+2. For a new folder, you can change the folder name before you import. If you already have a folder with that name, the dialog suggests `Name (2)`, `Name (3)` and so on. For an existing folder, the app checks the 500-card total here.
+3. The app makes the new folder (or uses the open one), then sends the cards **25 at a time**. It does not send all of them in one request. A progress bar shows how many cards are in. If a request fails, the app tries it again two more times.
+4. If a request still fails, the import stops. The folder keeps the cards that were added, and the dialog tells you how many. To try again into a new folder, delete that folder and import the file again.
 
 ## What is not in the file
 

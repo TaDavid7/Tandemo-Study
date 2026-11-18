@@ -1,8 +1,8 @@
 "use client";
 import React, { FormEvent, memo, useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { api, authfetch, Card, Folder, useCards, useClientValue, useFolders, useRequireAuth } from "@/lib/api";
-import { Button, EASE_OUT, Field, FlipCard, Kbd, Modal, Notice, Panel, inputClass } from "@/components/ui";
+import { Button, EASE_OUT, Field, FlipCard, Kbd, Modal, Notice, Panel, Swipeable, inputClass } from "@/components/ui";
 import { useMobile } from "@/components/AppShell";
 import {
   IMPORT_BATCH_SIZE, MAX_FILE_BYTES, MAX_IMPORT_CARDS, FolderFileCard,
@@ -19,6 +19,7 @@ type Dialog =
   | { kind: "card"; card?: Card }
   | { kind: "pdf" }
   | { kind: "import" }
+  | { kind: "importInto" }
   | { kind: "rename" }
   | { kind: "deleteFolder" }
   | { kind: "deleteCard"; card: Card }
@@ -119,6 +120,13 @@ export default function DecksPage() {
                 <p className="mt-1.5 text-muted">
                   {cards.length} {cards.length === 1 ? "card" : "cards"}
                   <button onClick={() => setDialog({ kind: "rename" })} className="ml-4 underline-offset-4 hover:text-ink hover:underline">Rename</button>
+                  <button
+                    disabled={cardsLoading}
+                    onClick={() => setDialog({ kind: "importInto" })}
+                    className="ml-3 underline-offset-4 hover:text-ink hover:underline disabled:opacity-40"
+                  >
+                    Import cards
+                  </button>
                   {cards.length > 0 && (
                     <button
                       disabled={cardsLoading}
@@ -231,6 +239,15 @@ export default function DecksPage() {
         onClose={() => setDialog(null)}
         onImported={folderCreated}
       />
+      {folder && (
+        <ImportFolderDialog
+          open={dialog?.kind === "importInto"}
+          folderNames={folders.map((f) => f.name)}
+          into={{ folder, count: cards.length }}
+          onClose={() => setDialog(null)}
+          onImported={reload}
+        />
+      )}
       <RenameDialog
         open={dialog?.kind === "rename"}
         folder={folder}
@@ -331,53 +348,6 @@ const FolderSidebar = memo(function FolderSidebar({
     </aside>
   );
 });
-
-// A swipe counts once the card would end up this far from centre, counting a flick's speed.
-const SWIPE_DISTANCE = 90;
-const FLICK_SECONDS = 0.2;
-
-/** Phone: the card follows your finger sideways. Swipe left for the next card, right for the previous one. */
-function Swipeable({
-  enabled,
-  onSwipe,
-  children,
-}: {
-  enabled: boolean;
-  onSwipe: (step: 1 | -1) => void;
-  children: React.ReactNode;
-}) {
-  // Set while a swipe is in progress, so letting go doesn't also count as a tap-to-flip.
-  const swiping = useRef(false);
-  const x = useMotionValue(0);
-  // Tilts a little as it moves, like a card held at the bottom edge.
-  const rotate = useTransform(x, [-300, 300], [-8, 8]);
-
-  return (
-    <motion.div
-      className="h-full"
-      style={{ x, rotate }}
-      drag={enabled ? "x" : false}
-      dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={1} // follows the finger 1:1
-      dragTransition={{ bounceStiffness: 500, bounceDamping: 34 }} // springs back when you don't swipe far enough
-      onDragStart={() => { swiping.current = true; }}
-      // Swallow the click that ends a drag before it reaches the card underneath.
-      onClickCapture={(e) => { if (swiping.current) e.stopPropagation(); }}
-      onDragEnd={(_, { offset, velocity }) => {
-        const landing = offset.x + velocity.x * FLICK_SECONDS;
-        const step = landing < -SWIPE_DISTANCE ? 1 : landing > SWIPE_DISTANCE ? -1 : 0;
-        if (step) {
-          // Keep going off-screen at the speed it was thrown, instead of springing back first.
-          animate(x, step * -window.innerWidth, { type: "spring", velocity: velocity.x, stiffness: 220, damping: 30 });
-          onSwipe(step);
-        }
-        setTimeout(() => { swiping.current = false; }, 0);
-      }}
-    >
-      {children}
-    </motion.div>
-  );
-}
 
 function ArrowButton({ dir, onClick }: { dir: 1 | -1; onClick: () => void }) {
   return (
@@ -609,13 +579,32 @@ type ImportState =
   | { step: "done"; name: string; total: number }
   | { step: "failed"; name: string; done: number; total: number; message: string };
 
+/** The message when a file would take a folder past MAX_IMPORT_CARDS. Nothing is imported. */
+function overLimitMessage(folderName: string, have: number, adding: number) {
+  const room = Math.max(0, MAX_IMPORT_CARDS - have);
+  return (
+    `“${folderName}” has ${have} card${have === 1 ? "" : "s"} and the file has ${adding}. ` +
+    `Together that's ${have + adding}, over the ${MAX_IMPORT_CARDS}-card limit, so nothing was imported. ` +
+    (room > 0
+      ? `This folder has room for ${room} more card${room === 1 ? "" : "s"}. Use a smaller file, or import it as a new folder.`
+      : "This folder is full. Import the file as a new folder instead.")
+  );
+}
+
 /**
- * Reads a folder file (format in folderDetails.md), checks every card, then makes a
- * new folder and sends the cards IMPORT_BATCH_SIZE at a time rather than all at once.
+ * Reads a folder file (format in folderDetails.md), checks every card, then sends the
+ * cards IMPORT_BATCH_SIZE at a time rather than all at once. Without `into` the cards
+ * go into a new folder; with it they're added to the end of that folder, as long as
+ * the folder stays within MAX_IMPORT_CARDS.
  */
 function ImportFolderDialog({
-  open, folderNames, onClose, onImported,
-}: { open: boolean; folderNames: string[]; onClose: () => void; onImported: (f: Folder) => void }) {
+  open, folderNames, into, onClose, onImported,
+}: {
+  open: boolean; folderNames: string[];
+  /** Add to this folder, which has `count` cards, instead of making a new one. */
+  into?: { folder: Folder; count: number };
+  onClose: () => void; onImported: (f: Folder) => void;
+}) {
   const [state, setState] = useState<ImportState>({ step: "pick" });
   const [name, setName] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
@@ -624,6 +613,8 @@ function ImportFolderDialog({
   useResetOnOpen(open, () => { setState({ step: "pick" }); setName(""); setErrors([]); });
 
   const busy = state.step === "importing";
+  // Whether the file's cards would take the folder past the limit; rejected before anything is sent.
+  const tooMany = (adding: number) => (into && into.count + adding > MAX_IMPORT_CARDS ? overLimitMessage(into.folder.name, into.count, adding) : null);
 
   const readFile = async (file: File | undefined) => {
     if (!file || busy) return;
@@ -639,6 +630,12 @@ function ImportFolderDialog({
       setErrors(parsed.errors);
       return;
     }
+    const over = tooMany(parsed.cards.length);
+    if (over) {
+      setState({ step: "pick" });
+      setErrors([over]);
+      return;
+    }
     setName(uniqueFolderName(parsed.name, folderNames));
     setState({ step: "ready", fileName: file.name, cards: parsed.cards });
   };
@@ -651,12 +648,18 @@ function ImportFolderDialog({
     setErrors([]);
 
     let folder: Folder;
-    try {
-      folder = await api<Folder>("/api/folders", "POST", { name: name.trim() });
-    } catch (err) {
-      const msg = (err as Error).message;
-      setErrors([msg === "folder exists" ? "You already have a folder with that name. Choose another name." : msg]);
-      return;
+    if (into) {
+      const over = tooMany(total);
+      if (over) { setState({ step: "pick" }); setErrors([over]); return; }
+      folder = into.folder;
+    } else {
+      try {
+        folder = await api<Folder>("/api/folders", "POST", { name: name.trim() });
+      } catch (err) {
+        const msg = (err as Error).message;
+        setErrors([msg === "folder exists" ? "You already have a folder with that name. Choose another name." : msg]);
+        return;
+      }
     }
 
     let done = 0;
@@ -671,12 +674,12 @@ function ImportFolderDialog({
     } catch (err) {
       setState({ step: "failed", name: folder.name, done, total, message: (err as Error).message });
     }
-    // Show the new folder, with whatever cards made it in.
+    // Show the folder, with whatever cards made it in.
     onImported(folder);
   };
 
   return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} title="Import folder">
+    <Modal open={open} onClose={busy ? () => {} : onClose} title={into ? `Import cards into “${into.folder.name}”` : "Import folder"}>
       {state.step === "importing" || state.step === "done" || state.step === "failed" ? (
         <div>
           <div className="mb-2 flex justify-between text-sm">
@@ -708,8 +711,21 @@ function ImportFolderDialog({
       ) : (
         <form onSubmit={runImport}>
           <p className="mb-4 text-sm text-muted">
-            Choose a <code>.json</code> folder file, such as one made with Export. It becomes a new folder with up
-            to {MAX_IMPORT_CARDS} cards. See <code>folderDetails.md</code> for the format.
+            {into ? (
+              <>
+                Choose a <code>.json</code> folder file, such as one made with Export. Its cards are added after the{" "}
+                {into.count} already here. A folder can reach {MAX_IMPORT_CARDS} cards this way,{" "}
+                {into.count < MAX_IMPORT_CARDS
+                  ? `so this file can add up to ${MAX_IMPORT_CARDS - into.count}.`
+                  : "so this folder is full. Import the file as a new folder instead."}{" "}
+                See <code>folderDetails.md</code> for the format.
+              </>
+            ) : (
+              <>
+                Choose a <code>.json</code> folder file, such as one made with Export. It becomes a new folder with up
+                to {MAX_IMPORT_CARDS} cards. See <code>folderDetails.md</code> for the format.
+              </>
+            )}
           </p>
           <label
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -733,13 +749,18 @@ function ImportFolderDialog({
             </span>
           </label>
 
-          {state.step === "ready" && (
+          {state.step === "ready" && (into ? (
+            <p className="mt-4 text-sm">
+              Adds {state.cards.length} card{state.cards.length === 1 ? "" : "s"}, for {into.count + state.cards.length} in
+              this folder.
+            </p>
+          ) : (
             <div className="mt-4">
               <Field label="Folder name">
                 <input value={name} onChange={(e) => setName(e.target.value)} required className={inputClass} />
               </Field>
             </div>
-          )}
+          ))}
 
           {errors.length > 0 && (
             <div className="mt-4">
@@ -756,7 +777,7 @@ function ImportFolderDialog({
 
           <div className="flex justify-end gap-2 pt-6">
             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button disabled={state.step !== "ready" || !name.trim()}>Import</Button>
+            <Button disabled={state.step !== "ready" || (!into && !name.trim())}>Import</Button>
           </div>
         </form>
       )}

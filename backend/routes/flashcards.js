@@ -82,7 +82,7 @@ router.post("/batch", auth, async (req, res) => {
 
     const existing = await Flashcard.countDocuments({ folder: folder._id, user: req.user._id });
     if (existing + cards.length > MAX_IMPORT_CARDS) {
-      return res.status(400).json({ error: `An imported folder can hold at most ${MAX_IMPORT_CARDS} cards.` });
+      return res.status(400).json({ error: `This folder has ${existing} cards. Adding ${cards.length} more would go over the ${MAX_IMPORT_CARDS}-card import limit.` });
     }
 
     const created = await Flashcard.insertMany(

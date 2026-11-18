@@ -153,7 +153,7 @@ export default function VersusRoomPage() {
                     exit={{ opacity: 0, y: -12 }}
                     className="flex min-h-0 flex-1 flex-col"
                   >
-                    <FitText className="px-10 pb-10 text-center font-card text-3xl leading-snug mobile:px-6 mobile:text-2xl">
+                    <FitText ruled className="px-10 pb-16 text-center font-card text-3xl mobile:px-6 mobile:text-2xl">
                       {question.question}
                     </FitText>
                   </motion.div>

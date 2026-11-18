@@ -1,5 +1,5 @@
 "use client";
-import React, { FormEvent, useEffect, useRef, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
 import Link from "next/link";
 import { Card, shuffle, useCards, useFolders, useRequireAuth } from "@/lib/api";
@@ -90,6 +90,19 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
   const over = finishedEarly || left === 0;
   const controls = useAnimationControls();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // After a wrong guess the answer goes on the line under the question, so it sits on
+  // the card's rules too. Memoized: FitText refits whenever its children change.
+  const question = deck[i]?.question;
+  const cardText = useMemo(
+    () => (
+      <>
+        {question}
+        {reveal !== null && <span className="block text-bad">Answer: {reveal}</span>}
+      </>
+    ),
+    [question, reveal]
+  );
 
   useEffect(() => {
     if (over) return;
@@ -203,7 +216,7 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
 
       <motion.div animate={controls}>
         <div
-          className={`index-card relative flex h-[16.25rem] flex-col rounded-xl border px-10 py-5 text-center mobile:h-[12rem] mobile:px-6 mobile:pt-12 shadow-[0_12px_30px_-12px_rgb(0_0_0/0.25)] transition-colors ${
+          className={`index-card relative flex h-[16.25rem] flex-col rounded-xl border px-10 pt-5 text-center mobile:h-[12rem] mobile:px-6 shadow-[0_12px_30px_-12px_rgb(0_0_0/0.25)] transition-colors ${
             reveal !== null ? "border-bad" : "border-line"
           }`}
         >
@@ -216,20 +229,8 @@ function Game({ cards, seconds, onExit }: { cards: Card[]; seconds: number; onEx
               transition={{ duration: 0.15 }}
               className="flex min-h-0 flex-1 flex-col"
             >
-              <FitText className="font-card text-3xl leading-snug">{deck[i]?.question}</FitText>
+              <FitText ruled className="pb-2 font-card text-3xl mobile:text-2xl">{cardText}</FitText>
             </motion.div>
-          </AnimatePresence>
-          <AnimatePresence>
-            {reveal !== null && (
-              <motion.p
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-x-0 bottom-5 text-center text-bad"
-              >
-                Answer: <span className="whitespace-pre-wrap font-semibold">{reveal}</span>
-              </motion.p>
-            )}
           </AnimatePresence>
         </div>
       </motion.div>

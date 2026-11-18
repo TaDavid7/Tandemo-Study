@@ -97,14 +97,24 @@ body {
   outline-offset: 2px;
 }
 
-/* Ruled index-card paper used on card faces */
+/* Ruled index-card paper used on card faces. The rules are sized in rem, so they grow
+   and shrink with the card and its text as the window changes width. Rounded to whole
+   pixels to keep each rule crisp. FitText (ui.tsx) computes the same numbers
+   (RULE_TOP_REM, RULE_GAP_REM) and can set a smaller --rule-gap on a card whose text
+   needs more lines. */
 .index-card {
+  --rule-top: round(3.625rem, 1px);
+  --rule-gap: round(2rem, 1px);
   background-color: var(--card);
   background-image:
     linear-gradient(var(--rule-red), var(--rule-red)),
-    repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule-blue) 31px 32px);
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 calc(var(--rule-gap) - 1px),
+      var(--rule-blue) calc(var(--rule-gap) - 1px) var(--rule-gap)
+    );
   background-size: 100% 2px, 100% 100%;
-  background-position: 0 56px, 0 58px;
+  background-position: 0 calc(var(--rule-top) - 2px), 0 var(--rule-top);
   background-repeat: no-repeat;
 }
 /* Text too long to sit on the rules (FitText in ui.tsx): keep only the red header line. */

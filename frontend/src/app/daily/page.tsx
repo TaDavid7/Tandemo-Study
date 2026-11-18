@@ -211,7 +211,7 @@ function Session({ onExit }: { onExit: () => void }) {
             exit={{ opacity: 0, y: -40, rotate: -4 }}
             transition={{ type: "spring", stiffness: 360, damping: 30 }}
           >
-            <FlipCard ruled className="h-full" front={current.question} back={current.answer} flipped={flipped} onFlip={() => setFlipped((f) => !f)} />
+            <FlipCard className="h-full" front={current.question} back={current.answer} flipped={flipped} onFlip={() => setFlipped((f) => !f)} />
           </motion.div>
         </AnimatePresence>
       </div>

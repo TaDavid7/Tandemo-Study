@@ -17,33 +17,46 @@ async function sessionMatch(userId) {
 }
 
 /**
- * Never-reviewed cards, picked at random, up to MAX_NEW per folder per day. The limit
- * is per folder so that studying one folder doesn't leave another with nothing to
- * start. It's per day, not per request, so reopening Daily doesn't hand out a fresh batch.
+ * How many new cards each folder can still start today: up to MAX_NEW per folder per
+ * day, minus the ones already started today. The limit is per folder so that studying
+ * one folder doesn't leave another with nothing to start. It's per day, not per
+ * request, so reopening Daily doesn't hand out a fresh batch.
+ * Returns [{ folder, left }] with left > 0, already capped at the folder's unseen cards.
  */
-async function pickNewCards(match, startOfToday, endOfToday) {
-  const [started, folders] = await Promise.all([
+async function newCardsLeft(match, startOfToday, endOfToday) {
+  const [started, unseen] = await Promise.all([
     Flashcard.aggregate([
       { $match: { ...match, firstReviewedAt: { $gte: startOfToday, $lte: endOfToday } } },
       { $group: { _id: "$folder", count: { $sum: 1 } } },
     ]),
-    Flashcard.distinct("folder", { ...match, lastReviewedAt: null }),
+    Flashcard.aggregate([
+      { $match: { ...match, lastReviewedAt: null } },
+      { $group: { _id: "$folder", count: { $sum: 1 } } },
+    ]),
   ]);
   const startedIn = new Map(started.map((s) => [String(s._id), s.count]));
+  return unseen
+    .map((u) => ({ folder: u._id, left: Math.min(u.count, MAX_NEW - (startedIn.get(String(u._id)) ?? 0)) }))
+    .filter((f) => f.left > 0);
+}
 
+/** Never-reviewed cards, picked at random, as many per folder as newCardsLeft allows. */
+async function pickNewCards(match, startOfToday, endOfToday) {
+  const folders = await newCardsLeft(match, startOfToday, endOfToday);
   const batches = await Promise.all(
-    folders.map((folder) => {
-      const left = MAX_NEW - (startedIn.get(String(folder)) ?? 0);
-      if (left <= 0) return [];
-      return Flashcard.aggregate([
+    folders.map(({ folder, left }) =>
+      Flashcard.aggregate([
         { $match: { ...match, folder, lastReviewedAt: null } },
         { $sample: { size: left } },
         { $project: CARD_FIELDS },
-      ]);
-    })
+      ])
+    )
   );
   return batches.flat();
 }
+
+/** Seen-before cards due by the end of the user's today. */
+const reviewMatch = (match, endOfToday) => ({ ...match, due: { $lte: endOfToday }, lastReviewedAt: { $ne: null } });
 
 // GET /api/daily?tz=<Date#getTimezoneOffset()>
 // Reviews: cards seen before and due by the end of the user's today.
@@ -54,11 +67,7 @@ router.get("/daily", auth, async (req, res) => {
     const baseMatch = await sessionMatch(req.user._id);
     const { start: startOfToday, end: endOfToday } = todayBounds(new Date(), parseTzOffset(req.query.tz));
 
-    const review = await Flashcard.find({
-      ...baseMatch,
-      due: { $lte: endOfToday },
-      lastReviewedAt: { $ne: null },
-    })
+    const review = await Flashcard.find(reviewMatch(baseMatch, endOfToday))
       .select(CARD_FIELDS)
       .sort({ due: 1, _id: 1 })
       .limit(MAX_REVIEW)
@@ -68,6 +77,29 @@ router.get("/daily", auth, async (req, res) => {
     const cardCount = await Flashcard.countDocuments(baseMatch);
 
     res.json({ review, news, cardCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/daily/count?tz=<Date#getTimezoneOffset()>
+// How many cards GET /api/daily would hand out right now, without loading them.
+// review is capped at MAX_REVIEW, news at MAX_NEW per folder (minus today's).
+router.get("/daily/count", auth, async (req, res) => {
+  try {
+    const baseMatch = await sessionMatch(req.user._id);
+    const { start: startOfToday, end: endOfToday } = todayBounds(new Date(), parseTzOffset(req.query.tz));
+
+    const [dueCount, newLeft] = await Promise.all([
+      Flashcard.countDocuments(reviewMatch(baseMatch, endOfToday)),
+      newCardsLeft(baseMatch, startOfToday, endOfToday),
+    ]);
+
+    res.json({
+      review: Math.min(dueCount, MAX_REVIEW),
+      news: newLeft.reduce((sum, f) => sum + f.left, 0),
+      maxNewPerFolder: MAX_NEW,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

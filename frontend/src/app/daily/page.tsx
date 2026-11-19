@@ -5,10 +5,25 @@ import Link from "next/link";
 import { api, Card, Folder, shuffle, useFolders, useRequireAuth } from "@/lib/api";
 import { Button, Chip, FlipCard, Kbd, Notice, PageHeader, Panel } from "@/components/ui";
 
+type TodayCount = { review: number; news: number; maxNewPerFolder: number };
+
 export default function DailyPage() {
   const signedIn = useRequireAuth();
   const { folders, setFolders, loading } = useFolders();
   const [started, setStarted] = useState(false);
+  const [count, setCount] = useState<TodayCount | null>(null);
+  // Bumped after a folder's schedule is saved, so the count is fetched again.
+  const [saved, setSaved] = useState(0);
+  const included = folders.filter((f) => f.schedule).length;
+
+  useEffect(() => {
+    if (!signedIn || started || !included) return;
+    let cancelled = false;
+    api<TodayCount>(`/api/daily/count?tz=${new Date().getTimezoneOffset()}`)
+      .then((c) => { if (!cancelled) setCount(c); })
+      .catch(() => { if (!cancelled) setCount(null); });
+    return () => { cancelled = true; };
+  }, [signedIn, started, included, saved]);
 
   if (!signedIn) return null;
   if (started) return <Session onExit={() => setStarted(false)} />;
@@ -18,12 +33,13 @@ export default function DailyPage() {
     setFolders((all) => all.map((x) => (x._id === f._id ? { ...x, schedule: next } : x)));
     try {
       await api(`/api/folders/${f._id}`, "PATCH", { schedule: next });
+      setSaved((n) => n + 1);
     } catch {
       setFolders((all) => all.map((x) => (x._id === f._id ? { ...x, schedule: !next } : x)));
     }
   };
 
-  const included = folders.filter((f) => f.schedule).length;
+  const left = count ? count.review + count.news : 0;
   const sorted = [...folders].sort((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -52,6 +68,18 @@ export default function DailyPage() {
           </div>
         )}
       </Panel>
+
+      {included > 0 && count && (
+        <Panel className="mt-4 flex items-center gap-5 p-6">
+          <span className="font-card text-5xl tabular-nums leading-none">{left}</span>
+          <div>
+            <p className="font-semibold">{left === 1 ? "card" : "cards"} left to review today</p>
+            <p className="text-sm text-muted">
+              {count.review} due for review · {count.news} new (up to {count.maxNewPerFolder} new per folder a day)
+            </p>
+          </div>
+        </Panel>
+      )}
 
       <Button size="lg" className="mt-6 w-full" disabled={!included} onClick={() => setStarted(true)}>
         {included ? "Start today's session" : "Include at least one folder"}
